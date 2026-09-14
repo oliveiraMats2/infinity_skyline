@@ -69,6 +69,14 @@ compose:
   reference: center           # frame de referencia no meio da sequencia: espalha a distorcao acumulada para os dois lados em vez de concentra-la numa ponta
   projection: cylindrical     # a cena padrao (high_bright) e um varrimento largo, e a projecao planar diverge conforme o angulo se afasta da referencia: em planar o canvas pedia 25615x13310 px, em cilindrica cabe em 12341x1706. Use planar apenas em setores estreitos, onde ela e exata e mais barata
   canvas_max: 20000           # teto do canvas em pixels, contra homografia degenerada que explodiria a memoria. Precisa acomodar o mosaico legitimo: 8 quadros de 1600 px em cilindrica dao ~12300 px de largura
+  # Focal usada para montar as intrinsecas na projecao nao planar: ela decide a que
+  # distancia angular cada quadro cai no cilindro. Estimar a focal a partir das
+  # homografias e mal condicionado sob rotacao pequena (nesta cena a estimativa deu
+  # 3471 px contra os 1291 px reais, 2.7x, e abria buracos entre os quadros), entao
+  # declare a camera quando ela for conhecida. focal_px tem prioridade sobre o par mm.
+  focal_px: null            # focal direto em pixels; null = usa o par abaixo
+  focal_mm: 18.0            # EXIF das imagens: lente em 18 mm
+  sensor_width_mm: 22.3     # sensor APS-C da Canon EOS Rebel T5i
   seam:
     finder: graphcut          # graphcut acha o corte de menor custo de cor; dp_color e mais rapido e pior
     scale: 0.25               # a costura roda em escala reduzida porque o graph cut e O(pixels) e a linha de corte e uma estrutura de baixa frequencia: achar em 1/4 e reescalar da o mesmo corte por uma fracao do tempo e da memoria

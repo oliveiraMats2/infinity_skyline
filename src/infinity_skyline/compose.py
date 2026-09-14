@@ -290,6 +290,35 @@ def _focals_from_homography(homography: np.ndarray) -> tuple[float | None, float
     return _finite(f0), _finite(f1)
 
 
+def _resolve_focal(
+    config: ComposeConfig, graph: nx.Graph, frame_width: int
+) -> float | None:
+    """Focal in pixels: taken from the config when stated, estimated otherwise.
+
+    Stating it matters. The closed form in :func:`_focals_from_homography` recovers the
+    focal from the perspective terms of the homography, and those vanish under a small
+    rotation, so the estimate degenerates exactly on the well behaved sweeps this
+    pipeline targets.
+    """
+    if config.focal_px is not None:
+        logger.info("focal: %.1f px, from compose.focal_px", config.focal_px)
+        return config.focal_px
+    if config.focal_mm is not None and config.sensor_width_mm is not None:
+        focal = config.focal_mm / config.sensor_width_mm * frame_width
+        fov = 2.0 * np.degrees(np.arctan(frame_width / (2.0 * focal)))
+        logger.info(
+            "focal: %.1f px, from %.1f mm on a %.1f mm sensor at %d px wide (%.1f deg fov)",
+            focal, config.focal_mm, config.sensor_width_mm, frame_width, fov,
+        )
+        return focal
+    if config.focal_mm is not None or config.sensor_width_mm is not None:
+        logger.warning(
+            "compose.focal_mm and compose.sensor_width_mm only work as a pair; "
+            "falling back to estimating the focal from the homographies"
+        )
+    return _estimate_focal(graph)
+
+
 def _estimate_focal(graph: nx.Graph) -> float | None:
     """Median focal over the edge homographies, or None when it cannot be had."""
     focals: list[float] = []
@@ -306,7 +335,18 @@ def _estimate_focal(graph: nx.Graph) -> float | None:
         )
         return None
     focal = float(np.median(focals))
-    logger.info("estimated focal: %.1f px from %d edge estimates", focal, len(focals))
+    spread = max(focals) / min(focals)
+    logger.info(
+        "estimated focal: %.1f px from %d edge estimates over %d edges",
+        focal, len(focals), graph.number_of_edges(),
+    )
+    if spread > 2.0:
+        logger.warning(
+            "the focal estimates span %.0f to %.0f px, a factor of %.1f: the closed form "
+            "is ill conditioned under small rotations. Set compose.focal_mm and "
+            "compose.sensor_width_mm (or compose.focal_px) to place the frames correctly",
+            min(focals), max(focals), spread,
+        )
     return focal
 
 
@@ -555,7 +595,8 @@ def compose_panorama(
     tiles: list[Tile] | None = None
     canvas_w = canvas_h = 0
     if config.projection != "planar":
-        focal = _estimate_focal(graph)
+        frame_width = max(image.shape[1] for image in sources.values())
+        focal = _resolve_focal(config, graph, frame_width)
         if focal is not None:
             try:
                 tiles, canvas_w, canvas_h = _warp_rotation(

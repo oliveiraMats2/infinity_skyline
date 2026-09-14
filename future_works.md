@@ -184,9 +184,14 @@ dropped without a word in another is a trap.
 
 ## 6. The estimated focal drives the cylindrical layout, and it is unreliable
 
-**Status:** open, and it is the reason the default scene composes with gaps. This
-supersedes an earlier version of this section, which blamed the capture and the graph
-thresholds. That diagnosis was wrong, and how it was wrong is worth recording.
+**Status:** worked around for a known camera, still open when the camera is unknown.
+`compose.focal_mm` and `compose.sensor_width_mm` (or `compose.focal_px`) now state the
+focal, and the default config declares the 18 mm lens and the 22.3 mm APS-C sensor of
+these sources, which closes every gap. The estimator is still what runs when they are
+null, and it is still unreliable; it now warns when its estimates disagree by more than
+a factor of two. This section supersedes an earlier version that blamed the capture and
+the graph thresholds. That diagnosis was wrong, and how it was wrong is worth
+recording.
 
 **What the layout depends on.** In a non planar projection, `compose.py` builds the
 intrinsics `K` from a single focal estimated by `_estimate_focal`, the median of
@@ -241,10 +246,10 @@ mosaic and there are no black gaps at all.
 
 **Fix, in increasing order of effort.**
 
-* Let the config state the focal, since it is a property of the camera and the user
-  knows it: `compose.focal_mm` plus `compose.sensor_width_mm`, converted against the
-  working image width, or a direct `compose.focal_px`. Null keeps the current estimate.
-  This is a few lines and it solves the problem for every scene shot on known glass.
+* ~~Let the config state the focal~~. **Done.** `compose.focal_mm` plus
+  `compose.sensor_width_mm`, converted against the working image width, or a direct
+  `compose.focal_px`. All null keeps the estimate. This solves it for any scene shot on
+  known glass, at the cost of the user having to know the glass.
 * Carry the EXIF across the conversion. `convert` reads the RAW, where the focal lives,
   and writes PNG, where it does not. Writing a small sidecar JSON per scene at convert
   time would make the focal available without the user typing it.

@@ -94,12 +94,22 @@ that plane diverges as the sweep widens. In planar, `high_bright` asks for a 256
 canvas and `360_graus_images` for 45297x10649, and the `compose.canvas_max` guard stops
 the run. Switch to `planar` only for a narrow sector, where it is exact and cheaper.
 
-The mosaic of `high_bright` composes with visible gaps between the frames. That is a
-known defect of the focal estimation, not of the capture: the closed form used to
-recover the focal from a homography is ill conditioned for small rotations, and on this
-scene it returns 3471 px against the 1291 px the EXIF implies, which spreads the frames
-too far apart on the cylinder. Forcing the correct focal closes every gap. See item 6
-of `future_works.md`.
+In a non planar projection the focal decides how far apart the frames sit on the
+cylinder, and recovering it from the homographies is ill conditioned under a small
+rotation: on this scene the estimate came out at 3471 px against the 1291 px the EXIF
+implies, and the mosaic composed with black gaps between the frames. So declare the
+camera instead, which is what the default config does:
+
+```yaml
+compose:
+  focal_mm: 18.0          # from the EXIF of the sources
+  sensor_width_mm: 22.3   # APS-C, Canon EOS Rebel T5i
+```
+
+They are converted against the working image width, so changing `data.max_dimension`
+needs no edit here. `compose.focal_px` overrides both. Leave all three null and the
+pipeline falls back to estimating, warning when the estimates disagree by more than a
+factor of two. Item 6 of `future_works.md` has the measurements.
 
 ## Two modes of operation
 

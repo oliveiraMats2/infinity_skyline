@@ -117,6 +117,13 @@ class BlendConfig(_Base):
 class ComposeConfig(_Base):
     reference: Literal["center", "first"] | int = "center"
     projection: Literal["planar", "cylindrical", "spherical"] = "planar"
+    # The focal decides how far apart the frames sit on the cylinder. Estimating it
+    # from the homographies is ill conditioned under small rotations, so state it when
+    # the camera is known: focal_mm and sensor_width_mm are converted against the
+    # working image width. focal_px wins over both. All null falls back to estimation.
+    focal_px: float | None = Field(default=None, gt=0.0)
+    focal_mm: float | None = Field(default=None, gt=0.0)
+    sensor_width_mm: float | None = Field(default=None, gt=0.0)
     canvas_max: int = Field(default=12000, ge=1)
     seam: SeamConfig = Field(default_factory=SeamConfig)
     blend: BlendConfig = Field(default_factory=BlendConfig)
