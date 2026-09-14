@@ -9,6 +9,7 @@ matrix and its reprojection error onward.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Mapping
 
 import cv2
@@ -16,7 +17,7 @@ import numpy as np
 from tqdm.auto import tqdm
 
 from ..config import Config, GeometryConfig
-from ..io import KeypointRecord, MatchRecord
+from ..io import KeypointRecord, MatchRecord, pair_stem, save_matches
 from ..logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -138,8 +139,13 @@ def estimate_all(
     keypoints: Mapping[str, KeypointRecord],
     matches: Mapping[tuple[str, str], MatchRecord],
     config: Config,
+    out_dir: Path | None = None,
 ) -> dict[tuple[str, str], MatchRecord]:
-    """Verify every pair, in place. Returns the same mapping as a plain dict."""
+    """Verify every pair, in place. Returns the same mapping as a plain dict.
+
+    When ``out_dir`` is given, each record is written back, so the ``.npz`` on disk
+    carries the inlier mask and the homography and not just the raw matches.
+    """
     verified: dict[tuple[str, str], MatchRecord] = dict(matches)
     for record in tqdm(verified.values(), desc="ransac", unit="pair"):
         estimate_homography(
@@ -149,6 +155,8 @@ def estimate_all(
             config.geometry,
             config.filters.min_matches,
         )
+        if out_dir is not None:
+            save_matches(out_dir / f"{pair_stem(record.query, record.train)}.npz", record)
     n_ok = sum(1 for record in verified.values() if record.meta.get("success"))
     logger.info("geometric verification: %d/%d pairs kept a model", n_ok, len(verified))
     return verified

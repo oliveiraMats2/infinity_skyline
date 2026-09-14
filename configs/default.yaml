@@ -17,9 +17,9 @@ run:
 data:
   # Esta e a pasta de PNG ja convertidos, ou seja, a SAIDA do `convert`, nao a origem RAW.
   # O `convert` nao le a origem daqui, ela vai no --source:
-  #   python main.py convert --config configs/default.yaml --source data/360_graus_images
-  input_dir: data/processed/360_graus_images
-  intruders_dir: null         # apontar para outra pasta de cena (por exemplo data/processed/low_bright) injeta imagens estranhas e testa a rejeicao da Etapa 4
+  #   python main.py convert --config configs/default.yaml --source data/high_bright
+  input_dir: data/processed/high_bright
+  intruders_dir: null         # apontar para outra pasta de cena (por exemplo data/processed/360_graus_images) injeta imagens estranhas e testa a rejeicao da Etapa 4
   extensions:
     - .png                    # `convert` escreve PNG lossless; ler .CR2 aqui funcionaria, mas pagaria o custo do rawpy em toda repeticao
   grayscale: true             # SIFT, ORB e AKAZE trabalham em um canal; converter uma vez no load evita reconverter dentro do laco de timing
@@ -67,8 +67,8 @@ graph:
 # Etapas 5 e 6: warp, costura e blending do mosaico.
 compose:
   reference: center           # frame de referencia no meio da sequencia: espalha a distorcao acumulada para os dois lados em vez de concentra-la numa ponta
-  projection: planar          # planar basta para setores; para a volta completa de 360 graus experimente cylindrical
-  canvas_max: 12000           # teto do canvas em pixels; uma homografia degenerada explodiria a tela e a memoria junto
+  projection: cylindrical     # a cena padrao (high_bright) e um varrimento largo, e a projecao planar diverge conforme o angulo se afasta da referencia: em planar o canvas pedia 25615x13310 px, em cilindrica cabe em 12341x1706. Use planar apenas em setores estreitos, onde ela e exata e mais barata
+  canvas_max: 20000           # teto do canvas em pixels, contra homografia degenerada que explodiria a memoria. Precisa acomodar o mosaico legitimo: 8 quadros de 1600 px em cilindrica dao ~12300 px de largura
   seam:
     finder: graphcut          # graphcut acha o corte de menor custo de cor; dp_color e mais rapido e pior
     scale: 0.25               # a costura roda em escala reduzida porque o graph cut e O(pixels) e a linha de corte e uma estrutura de baixa frequencia: achar em 1/4 e reescalar da o mesmo corte por uma fracao do tempo e da memoria

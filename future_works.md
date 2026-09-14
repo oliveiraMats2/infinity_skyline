@@ -10,9 +10,13 @@ Evidence below comes from three runs kept under `results/`: `smoke` (the 25 imag
 
 ---
 
-## 1. `compose.projection: planar` cannot stitch a 360 degree sweep
+## 1. Planar projection cannot stitch a wide sweep
 
-**Status:** open decision. The default ships `planar`, as specified.
+**Status:** resolved for the default config, one loose end left.
+
+The default is now `compose.projection: cylindrical` with `compose.canvas_max: 20000`,
+because both scenes tried so far are wide sweeps and neither composes in planar. Planar
+remains the right choice for a narrow sector, where it is exact and cheaper.
 
 **What happens.** On `data/processed/360_graus_images` (25 images, a full rotation)
 the planar path aborts:
@@ -28,19 +32,24 @@ the view angle approaches 90 degrees from the reference. At a full rotation the
 homography is genuinely singular, so no threshold tuning helps.
 
 Switching to `compose.projection: cylindrical` composes the same 25 images into a
-5622x2398 mosaic, with a focal of 1458.9 px estimated from 58 edge homographies.
+5622x2398 mosaic, with a focal of 1458.9 px estimated from 58 edge homographies. The
+default scene `high_bright` behaves the same way: 25615x13310 px in planar, 12341x1706
+in cylindrical.
 
-**Options.**
+**The loose end: the `canvas_max` error misdiagnoses.** It always blames the widest
+single tile as "degenerate", which is right when a homography really has blown up and
+wrong when the mosaic is simply wide. On the cylindrical `high_bright` run it reported
 
-* Change the default to `cylindrical`. Safe for wide sweeps, mildly wasteful for the
-  small 3 to 5 frame sets where planar is exact and cheaper.
-* Keep `planar` and let the guard teach the user. The error already names the
-  offending image, but it does not say "try cylindrical".
-* Pick the projection from the measured angular span of the graph, and warn when
-  overriding. More code, no user decision needed.
+```
+the canvas would be 12341x1706 px, past compose.canvas_max=12000;
+'IMG_0555' alone warps to 1640x1145 px, so its homography is degenerate
+```
 
-The cheapest honest improvement, whatever is decided: extend the `canvas_max` error
-message to suggest `compose.projection: cylindrical` when the estimated span is wide.
+A tile of 1640x1145 is not degenerate, it is one ordinary frame. The message should
+compare the worst tile against the source frame size and say "no single image is
+degenerate, the mosaic is legitimately this wide, raise compose.canvas_max" when they
+are comparable, keeping the current wording only when one tile actually dominates the
+canvas. It should also suggest `cylindrical` when the run is planar.
 
 ---
 
@@ -170,6 +179,58 @@ dropped without a word in another is a trap.
   produces fewest false homographies between unrelated scenes. Costs 24x the pairs.
 * Reject the config at validation time when `intruders_dir` is set and the command is
   `evaluate`. Cleanest, but `config.py` does not know which command is running.
+
+---
+
+## 6. Repetitive structure defeats the graph thresholds
+
+**Status:** open. It is why the default scene composes with gaps.
+
+`graph.min_inliers` and `graph.min_inlier_ratio` decide whether two images overlap.
+Both count agreement, and neither checks whether the agreement is geometrically
+possible. A railing, a row of columns or a regular facade repeats along the sweep, so
+RANSAC can fit a consistent homography between two frames that share no field of view
+at all, by aligning column seven of one frame onto column three of the other.
+
+**Measured on the default scene** (`high_bright`, 8 frames at `max_dimension: 1600`,
+28 pairs, 9 surviving edges). The x translation each accepted homography implies:
+
+| pair | dx (px) | inliers | reading |
+|---|---:|---:|---|
+| `0540 -> 0555` | -200 | 1384 | near duplicate, same framing |
+| `0542 -> 0555` | 595 | 441 | near duplicate |
+| `0548 -> 0551` | -772 | 409 | near duplicate |
+| `0540 -> 0542` | -1200 | 385 | real neighbour, 25 percent overlap |
+| `0542 -> 0544` | -1443 | 244 | real neighbour, 10 percent overlap |
+| `0547 -> 0548` | -978 | 173 | real neighbour |
+| `0544 -> 0547` | -1206 | 89 | real neighbour |
+| `0551 -> 0552` | -3282 | 84 | **impossible**, dx exceeds the 1600 px frame |
+| `0547 -> 0551` | -4064 | 80 | **impossible**, dx exceeds the 1600 px frame |
+
+The last two place a frame two to three frame widths away from a neighbour it is
+supposed to overlap. Two images cannot overlap and be 3282 px apart when each is
+1600 px wide. Those edges are what opens the black gaps in the mosaic, because
+`chain_homographies` trusts them like any other edge.
+
+**Why threshold tuning alone does not fix it.** Raising `min_inliers` to 100 drops both
+false edges (84 and 80 inliers), but it also drops `0544 -> 0547` at 89 inliers, which
+is a real neighbour, and that disconnects the chain. The false and the true edges are
+not separable by inlier count on this scene.
+
+**Fix.** Add a geometric plausibility check where the graph edge is created: reject an
+edge whose homography implies a translation larger than the frame, or whose warped
+corners do not intersect the other frame's rectangle. That is the information the
+inlier count does not carry, it costs one `cv2.perspectiveTransform` per pair, and it
+separates the two cases cleanly here (1443 px versus 3282 px against a 1600 px frame).
+A `graph.max_translation_ratio` knob, defaulting to about 0.9 of the frame width,
+would express it in the config.
+
+**Also worth knowing about this scene.** Three of the nine edges are near duplicates,
+frames shot from essentially the same position. They contribute inliers and an edge but
+advance the sweep by almost nothing, so `infer_order` spends chain positions on them.
+`high_bright` covers roughly 200 degrees with 8 frames, which at the estimated focal of
+3471 px leaves adjacent frames with 10 to 25 percent overlap, thin but usable. It is a
+harder panorama source than `360_graus_images`, not a broken one.
 
 ---
 

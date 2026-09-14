@@ -34,9 +34,11 @@ One directory is one scene, and the pipeline runs over one scene at a time:
 
 | Directory | Files | What it is |
 |---|---|---|
-| `data/360_graus_images/` | 25 `.CR2` | The panoramic 360 degree sweep, the main scene |
+| `data/high_bright/` | 8 `.CR2` | The same view, over-exposed. **The default scene** |
 | `data/low_bright/` | 7 `.CR2` | The same view, under-exposed |
-| `data/high_bright/` | 8 `.CR2` | The same view, over-exposed |
+| `data/360_graus_images/` | 25 `.CR2` | The panoramic 360 degree sweep |
+
+`data.input_dir` points at `high_bright`. Swap it for another row to change scene.
 
 `low_bright` and `high_bright` are exposure brackets of the same view, and that is
 exactly why `compose.exposure: gain_blocks` matters: when frames of one mosaic arrive
@@ -52,7 +54,7 @@ connected component of the graph.
 the *output* of the conversion, not at the RAW source. The source is passed explicitly:
 
 ```bash
-python main.py convert --config configs/default.yaml --source data/360_graus_images
+python main.py convert --config configs/default.yaml --source data/high_bright
 ```
 
 `--source` is required and takes the scene directory holding the `.CR2` files.
@@ -69,7 +71,7 @@ All subcommands take a config. The examples use the base config; swap in
 subcommand is fully described by its config.
 
 ```bash
-python main.py convert   --config configs/default.yaml --source data/360_graus_images
+python main.py convert   --config configs/default.yaml --source data/high_bright
 python main.py detect    --config configs/default.yaml   # keypoints and descriptors per image
 python main.py match     --config configs/default.yaml   # descriptor matching plus Lowe ratio test
 python main.py evaluate  --config configs/default.yaml   # detector x matcher benchmark, metrics.csv
@@ -81,15 +83,21 @@ python main.py panorama  --config configs/default.yaml   # warp, seam, blend, fi
 ### First run, from RAW to a mosaic
 
 ```bash
-python main.py convert  --config configs/default.yaml --source data/360_graus_images
-# point data.input_dir at data/processed/360_graus_images, then
+python main.py convert  --config configs/default.yaml --source data/high_bright
+# data.input_dir already points at data/processed/high_bright, then
 python main.py pipeline --config configs/default.yaml
 ```
 
-A full 360 degree sweep needs `compose.projection: cylindrical`. The default is
-`planar`, which is exact for a narrow sweep but diverges past roughly 90 degrees from
-the reference frame, and the `compose.canvas_max` guard will stop the run with an error
-naming the image whose homography blew up. See `future_works.md`.
+`compose.projection` defaults to `cylindrical`, which is what every scene here needs:
+a planar mosaic projects each frame onto the tangent plane of the reference view, and
+that plane diverges as the sweep widens. In planar, `high_bright` asks for a 25615x13310
+canvas and `360_graus_images` for 45297x10649, and the `compose.canvas_max` guard stops
+the run. Switch to `planar` only for a narrow sector, where it is exact and cheaper.
+
+The mosaic of `high_bright` composes with visible gaps. That is the scene, not the
+pipeline: 8 frames cover roughly 200 degrees, three of the nine graph edges are near
+duplicate framings, and two are false matches off the repeating railing. The numbers
+are in `future_works.md`.
 
 ## Two modes of operation
 

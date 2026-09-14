@@ -138,7 +138,7 @@ def _stage_geometry(
     images = _scene_images(config)
     keypoints = detect_directory(config, images, run_dir / "keypoints")
     matches = match_all(keypoints, config, run_dir / "matches")
-    matches = estimate_all(keypoints, matches, config)
+    matches = estimate_all(keypoints, matches, config, run_dir / "matches")
     return images, keypoints, matches
 
 
