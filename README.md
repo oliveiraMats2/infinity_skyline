@@ -13,10 +13,15 @@ fails immediately instead of halfway through a long run. Artifacts land in
 ## Installation
 
 ```bash
-uv venv .venv --prompt infinity_skyline && source .venv/bin/activate && uv sync
+uv venv .venv --prompt infinity_skyline && source .venv/bin/activate
+uv sync --extra dev
 ```
 
-Requires Python 3.11 or newer.
+Requires Python 3.11 or newer. `--extra dev` adds `pytest`; plain `uv sync` installs
+only the runtime dependencies and will *remove* `pytest` if it is already there.
+
+`opencv-contrib-python` is pinned below 5.0 on purpose: the 5.x Python bindings dropped
+`AKAZE`, `KAZE` and `BRISK`, and AKAZE is one of the three detectors under comparison.
 
 ## Input data
 
@@ -29,8 +34,8 @@ One directory is one scene, and the pipeline runs over one scene at a time:
 
 | Directory | Files | What it is |
 |---|---|---|
-| `data/360_graus_images/` | 26 `.CR2` | The panoramic 360 degree sweep, the main scene |
-| `data/low_bright/` | 8 `.CR2` | The same view, under-exposed |
+| `data/360_graus_images/` | 25 `.CR2` | The panoramic 360 degree sweep, the main scene |
+| `data/low_bright/` | 7 `.CR2` | The same view, under-exposed |
 | `data/high_bright/` | 8 `.CR2` | The same view, over-exposed |
 
 `low_bright` and `high_bright` are exposure brackets of the same view, and that is
@@ -42,15 +47,29 @@ Pointing `data.intruders_dir` at a different scene directory injects foreign ima
 into the run and exercises the rejection stage: they should fall outside the largest
 connected component of the graph.
 
-`convert` reads `data/<scene>/*.CR2` and writes `data/processed/<scene>/*.png`.
+`convert` is the one subcommand that does not take its input path from the config.
+`data.input_dir` names the PNG directory that every other stage reads, so it points at
+the *output* of the conversion, not at the RAW source. The source is passed explicitly:
+
+```bash
+python main.py convert --config configs/default.yaml --source data/360_graus_images
+```
+
+`--source` is required and takes the scene directory holding the `.CR2` files.
+`--dest` is optional and defaults to `data/processed/<source directory name>`, which is
+the layout the rest of the pipeline expects. `run.overwrite` in the config decides
+whether an already converted PNG is rewritten or skipped.
 
 ## CLI
 
 All subcommands take a config. The examples use the base config; swap in
 `configs/experiments/sift_vs_orb_vs_akaze.yaml` to run the detector comparison.
 
+`convert` additionally needs `--source`, for the reason given above. Every other
+subcommand is fully described by its config.
+
 ```bash
-python main.py convert   --config configs/default.yaml   # RAW to PNG under data/processed/
+python main.py convert   --config configs/default.yaml --source data/360_graus_images
 python main.py detect    --config configs/default.yaml   # keypoints and descriptors per image
 python main.py match     --config configs/default.yaml   # descriptor matching plus Lowe ratio test
 python main.py evaluate  --config configs/default.yaml   # detector x matcher benchmark, metrics.csv
@@ -58,6 +77,19 @@ python main.py visualize --config configs/default.yaml   # keypoint, match and g
 python main.py pipeline  --config configs/default.yaml   # detect, match, geometry, graph end to end
 python main.py panorama  --config configs/default.yaml   # warp, seam, blend, final mosaic
 ```
+
+### First run, from RAW to a mosaic
+
+```bash
+python main.py convert  --config configs/default.yaml --source data/360_graus_images
+# point data.input_dir at data/processed/360_graus_images, then
+python main.py pipeline --config configs/default.yaml
+```
+
+A full 360 degree sweep needs `compose.projection: cylindrical`. The default is
+`planar`, which is exact for a narrow sweep but diverges past roughly 90 degrees from
+the reference frame, and the `compose.canvas_max` guard will stop the run with an error
+naming the image whose homography blew up. See `future_works.md`.
 
 ## Two modes of operation
 
@@ -104,5 +136,6 @@ artifacts of the earlier ones.
 ## Tests
 
 ```bash
+uv sync --extra dev   # if pytest is not installed yet
 pytest
 ```

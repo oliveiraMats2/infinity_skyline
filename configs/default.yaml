@@ -15,7 +15,10 @@ run:
 
 # Uma pasta = uma cena. O pipeline roda sobre UMA cena por vez.
 data:
-  input_dir: data/processed/360_graus_images  # entrada crua e .CR2 em data/360_graus_images; passe pelo subcomando `convert` antes de rodar o resto
+  # Esta e a pasta de PNG ja convertidos, ou seja, a SAIDA do `convert`, nao a origem RAW.
+  # O `convert` nao le a origem daqui, ela vai no --source:
+  #   python main.py convert --config configs/default.yaml --source data/360_graus_images
+  input_dir: data/processed/360_graus_images
   intruders_dir: null         # apontar para outra pasta de cena (por exemplo data/processed/low_bright) injeta imagens estranhas e testa a rejeicao da Etapa 4
   extensions:
     - .png                    # `convert` escreve PNG lossless; ler .CR2 aqui funcionaria, mas pagaria o custo do rawpy em toda repeticao
