@@ -1,0 +1,35 @@
+[project]
+name = "infinity-skyline"
+version = "0.1.0"
+description = "Feature detection, matching, geometry and panorama composition benchmark over skyline image sets."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "opencv-contrib-python>=4.9,<5",  # OpenCV 5 dropped AKAZE/KAZE/BRISK from the Python bindings; the spec needs AKAZE
+    "numpy>=1.26",
+    "pydantic>=2.6",                # config schemas
+    "pyyaml>=6.0",
+    "typer>=0.12",                  # CLI
+    "tqdm>=4.66",                   # progress in every stage
+    "rawpy>=0.21",                  # .CR2 decoding; OpenCV/Pillow cannot read Canon RAW
+    "networkx>=3.2",                # connectivity graph, components, ordering, layouts
+    "pandas>=2.2",                  # metrics.csv + markdown table export
+    "matplotlib>=3.8",              # benchmark plots
+    "tabulate>=0.9",                # DataFrame.to_markdown backend
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+infinity-skyline = "infinity_skyline.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/infinity_skyline"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,13 @@
+.venv/
+results/
+data/raw/
+data/processed/
+graphify-out/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+images/
+360_graus_images/
+high_bright/
+low_bright/

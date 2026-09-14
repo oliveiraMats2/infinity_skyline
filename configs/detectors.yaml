@@ -1,0 +1,38 @@
+# ATENCAO: este arquivo NAO e um Config valido.
+# Ele nao tem `extends`, nao passa pelo schema pydantic de config.py e nao pode ser
+# usado em --config. E so uma fonte de presets: copie o bloco do detector que voce
+# quer para dentro de evaluate.per_detector_params (ou de detection.params) do seu
+# experimento. Ver configs/experiments/sift_vs_orb_vs_akaze.yaml como exemplo.
+#
+# Cada bloco lista apenas parametros que o cv2.<Detector>_create correspondente
+# aceita; create_detector descarta o que sobrar e loga um warning.
+# Regra de comparacao justa: nfeatures precisa ser o MESMO nos tres blocos.
+
+sift:
+  nfeatures: 5000             # teto de keypoints, mantidos os de maior resposta; 0 = sem teto
+  nOctaveLayers: 3            # camadas por oitava da piramide DoG
+  contrastThreshold: 0.04     # descarta pico fraco; subir limpa ceu e areas lisas
+  edgeThreshold: 10           # razao de curvaturas toleradas; descarta resposta em borda reta, que localiza mal ao longo da linha
+  sigma: 1.6                  # blur assumido da imagem de entrada na oitava zero
+
+orb:
+  nfeatures: 5000             # mesmo teto do SIFT, senao a comparacao vira orcamento de keypoints
+  scaleFactor: 1.2            # razao entre niveis da piramide; menor = mais niveis e mais custo
+  nlevels: 8
+  edgeThreshold: 31           # margem ignorada na borda, casa com patchSize
+  firstLevel: 0
+  WTA_K: 2                    # pontos por teste binario; 2 mantem a distancia de Hamming usual
+  scoreType: 0                # 0 = cv2.ORB_HARRIS_SCORE (melhor ranking), 1 = FAST_SCORE (mais rapido)
+  patchSize: 31               # janela do descritor BRIEF
+  fastThreshold: 20           # limiar do detector FAST
+
+akaze:
+  # AKAZE nao tem parametro nfeatures: create_detector registra isso e detect.py
+  # trunca por resposta ate o mesmo teto, para o orcamento continuar igual ao dos outros.
+  descriptor_type: 5          # 5 = cv2.AKAZE_DESCRIPTOR_MLDB (binario, 61 bytes)
+  descriptor_size: 0          # 0 = tamanho completo do MLDB
+  descriptor_channels: 3
+  threshold: 0.001            # limiar do detector; menor = mais keypoints
+  nOctaves: 4
+  nOctaveLayers: 4
+  diffusivity: 1              # 1 = cv2.KAZE_DIFF_PM_G2
