@@ -94,10 +94,12 @@ that plane diverges as the sweep widens. In planar, `high_bright` asks for a 256
 canvas and `360_graus_images` for 45297x10649, and the `compose.canvas_max` guard stops
 the run. Switch to `planar` only for a narrow sector, where it is exact and cheaper.
 
-The mosaic of `high_bright` composes with visible gaps. That is the scene, not the
-pipeline: 8 frames cover roughly 200 degrees, three of the nine graph edges are near
-duplicate framings, and two are false matches off the repeating railing. The numbers
-are in `future_works.md`.
+The mosaic of `high_bright` composes with visible gaps between the frames. That is a
+known defect of the focal estimation, not of the capture: the closed form used to
+recover the focal from a homography is ill conditioned for small rotations, and on this
+scene it returns 3471 px against the 1291 px the EXIF implies, which spreads the frames
+too far apart on the cylinder. Forcing the correct focal closes every gap. See item 6
+of `future_works.md`.
 
 ## Two modes of operation
 

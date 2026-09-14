@@ -182,55 +182,88 @@ dropped without a word in another is a trap.
 
 ---
 
-## 6. Repetitive structure defeats the graph thresholds
+## 6. The estimated focal drives the cylindrical layout, and it is unreliable
 
-**Status:** open. It is why the default scene composes with gaps.
+**Status:** open, and it is the reason the default scene composes with gaps. This
+supersedes an earlier version of this section, which blamed the capture and the graph
+thresholds. That diagnosis was wrong, and how it was wrong is worth recording.
 
-`graph.min_inliers` and `graph.min_inlier_ratio` decide whether two images overlap.
-Both count agreement, and neither checks whether the agreement is geometrically
-possible. A railing, a row of columns or a regular facade repeats along the sweep, so
-RANSAC can fit a consistent homography between two frames that share no field of view
-at all, by aligning column seven of one frame onto column three of the other.
+**What the layout depends on.** In a non planar projection, `compose.py` builds the
+intrinsics `K` from a single focal estimated by `_estimate_focal`, the median of
+`_focals_from_homography` over the graph edges. `K` then decides the rotation extracted
+from each homography and the arc length each frame occupies on the cylinder. A wrong
+focal does not fail loudly, it spaces the frames wrongly.
 
-**Measured on the default scene** (`high_bright`, 8 frames at `max_dimension: 1600`,
-28 pairs, 9 surviving edges). The x translation each accepted homography implies:
+**The estimate is wrong by 2.7x on the default scene.** Ground truth from the EXIF of
+the source files: Canon EOS Rebel T5i, APS-C sensor 22.3 mm wide, lens at 18 mm. At the
+configured `max_dimension: 1600` that is
 
-| pair | dx (px) | inliers | reading |
-|---|---:|---:|---|
-| `0540 -> 0555` | -200 | 1384 | near duplicate, same framing |
-| `0542 -> 0555` | 595 | 441 | near duplicate |
-| `0548 -> 0551` | -772 | 409 | near duplicate |
-| `0540 -> 0542` | -1200 | 385 | real neighbour, 25 percent overlap |
-| `0542 -> 0544` | -1443 | 244 | real neighbour, 10 percent overlap |
-| `0547 -> 0548` | -978 | 173 | real neighbour |
-| `0544 -> 0547` | -1206 | 89 | real neighbour |
-| `0551 -> 0552` | -3282 | 84 | **impossible**, dx exceeds the 1600 px frame |
-| `0547 -> 0551` | -4064 | 80 | **impossible**, dx exceeds the 1600 px frame |
+```
+f = 18.0 / 22.3 * 1600 = 1291 px      horizontal field of view 63.6 degrees
+```
 
-The last two place a frame two to three frame widths away from a neighbour it is
-supposed to overlap. Two images cannot overlap and be 3282 px apart when each is
-1600 px wide. Those edges are what opens the black gaps in the mosaic, because
-`chain_homographies` trusts them like any other edge.
+What the pipeline computed, edge by edge:
 
-**Why threshold tuning alone does not fix it.** Raising `min_inliers` to 100 drops both
-false edges (84 and 80 inliers), but it also drops `0544 -> 0547` at 89 inliers, which
-is a real neighbour, and that disconnects the chain. The false and the true edges are
-not separable by inlier count on this scene.
+| edge | inliers | focal estimates |
+|---|---:|---|
+| `0540 -> 0542` | 385 | 3825 |
+| `0540 -> 0555` | 1384 | none |
+| `0542 -> 0544` | 244 | none |
+| `0542 -> 0555` | 441 | 1037, 3118 |
+| `0544 -> 0547` | 89 | 6713 |
+| `0547 -> 0548` | 173 | none |
+| `0547 -> 0551` | 80 | none |
+| `0548 -> 0551` | 409 | none |
+| `0551 -> 0552` | 84 | none |
 
-**Fix.** Add a geometric plausibility check where the graph edge is created: reject an
-edge whose homography implies a translation larger than the frame, or whose warped
-corners do not intersect the other frame's rectangle. That is the information the
-inlier count does not carry, it costs one `cv2.perspectiveTransform` per pair, and it
-separates the two cases cleanly here (1443 px versus 3282 px against a 1600 px frame).
-A `graph.max_translation_ratio` knob, defaulting to about 0.9 of the frame width,
-would express it in the config.
+Six of the nine edges yield nothing, and the four values that survive span 1037 to
+6713, a factor of 6.5. Their median, 3471 px, is 2.69 times the truth and implies a
+26 degree field of view for a lens that sees 63.6.
 
-**Also worth knowing about this scene.** Three of the nine edges are near duplicates,
-frames shot from essentially the same position. They contribute inliers and an edge but
-advance the sweep by almost nothing, so `infer_order` spends chain positions on them.
-`high_bright` covers roughly 200 degrees with 8 frames, which at the estimated focal of
-3471 px leaves adjacent frames with 10 to 25 percent overlap, thin but usable. It is a
-harder panorama source than `360_graus_images`, not a broken one.
+**Why the closed form fails here.** `_focals_from_homography` solves for the focal from
+the perspective terms `h[6]` and `h[7]`. A rotation about the camera centre with a small
+angle leaves those terms near zero, so the system is ill conditioned: the denominators
+`h[6]*h[7]` and `(h[7]-h[6])*(h[7]+h[6])` approach zero and the candidate focal squares
+either go negative, which is the `none` rows, or blow up, which is the 6713. This is a
+property of the formula, not a coding error, and it is why OpenCV's own stitcher feeds
+`estimateFocal` many pairs and then runs bundle adjustment over the result.
+
+**Measured effect, and the proof it is the cause.** Recomposing the same graph, the same
+matches and the same images, changing only the focal:
+
+| focal | canvas | empty columns |
+|---|---|---|
+| 3471 px, estimated | 12341x1706 | 1110 px, 9.0 percent of the width |
+| 1291 px, from EXIF | 4674x1098 | 0 px |
+
+With the EXIF focal the frames overlap, the railing runs continuously across the whole
+mosaic and there are no black gaps at all.
+
+**Fix, in increasing order of effort.**
+
+* Let the config state the focal, since it is a property of the camera and the user
+  knows it: `compose.focal_mm` plus `compose.sensor_width_mm`, converted against the
+  working image width, or a direct `compose.focal_px`. Null keeps the current estimate.
+  This is a few lines and it solves the problem for every scene shot on known glass.
+* Carry the EXIF across the conversion. `convert` reads the RAW, where the focal lives,
+  and writes PNG, where it does not. Writing a small sidecar JSON per scene at convert
+  time would make the focal available without the user typing it.
+* Sanity filter the estimates: drop any candidate outside a plausible band and warn when
+  the surviving spread is wide. Note this alone would not have saved this run, since
+  3825 sits inside any reasonable band. It is a guard, not a fix.
+* Bundle adjustment, item 2 above, refines the focal jointly with the rotations and is
+  the principled answer. It also needs a starting focal that is not off by 2.7x.
+
+**What the earlier wrong diagnosis was, and why.** A previous version of this section
+measured the x translation implied by each edge homography, found values like 3282 and
+4064 px against a 1600 px frame, called them geometrically impossible, and concluded
+that repetitive structure on the railing was fabricating false edges. Two errors: those
+numbers came from chaining homographies in the *planar* frame, which is not the path a
+cylindrical run takes, and the pairs in question sit two positions apart in the sweep,
+where a displacement of two to three frame widths is exactly what is expected rather
+than impossible. The lesson is to measure the composition from `seam_mask`, which
+records the source of every pixel that actually landed on the canvas, and not from a
+re-derivation that may not match the code path under test.
 
 ---
 
