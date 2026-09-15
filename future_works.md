@@ -272,6 +272,64 @@ re-derivation that may not match the code path under test.
 
 ---
 
+## 7. Sign of the chained homography flipped the end frames (fixed)
+
+**Status:** fixed. Recorded because the failure mode is invisible and easy to reintroduce.
+
+A homography and its negation are the same projective transform, but `cv2.findHomography`
+normalizes `H[2,2]` to 1, and that flips the sign of the whole matrix whenever the true
+`[2,2]` is negative, which happens once a frame is far enough in angle from the reference.
+The determinant then goes negative. `_rotation_from_homography` orthonormalizes
+`K^-1 H^-1 K` with an SVD and has a `det < 0` branch that multiplies by
+`diag([1, 1, -1])`, so a negative determinant sends it down the reflection path and it
+returns a rotation wrong by more than 100 degrees. Nothing raises, nothing warns: the
+frame is simply pasted into the mosaic crooked.
+
+Measured on the default scene, reference `IMG_0547`, roll and pitch per frame:
+
+| frame | hops | det(H) | roll before | roll after |
+|---|---:|---:|---:|---:|
+| `0540` | 3 | **-80.5** | -123.5 | **6.5** |
+| `0555` | 3 | **-509** | -76.7 | **5.2** |
+| `0542` | 2 | +74.0 | 3.2 | 3.2 |
+| `0544` | 1 | +2.7 | 1.3 | 1.3 |
+| `0548` | 1 | +0.75 | -1.0 | -1.0 |
+| `0551` | 1 | +0.74 | -1.9 | -2.0 |
+| `0552` | 2 | +3.7 | -29.0 | **-16.7** |
+
+Exactly the two frames with a negative determinant were the crooked ones. The fix is one
+guard in `_rotation_from_homography`: negate the homography when its determinant is
+negative, before extracting the rotation.
+
+`0552` improved for a second reason, covered next.
+
+**Chains now route over the maximum spanning tree.** `chain_homographies` used
+`nx.shortest_path`, which counts hops and ignores edge weight, so `0552` reached the
+reference through the two weakest edges of the whole graph, 84 and 80 inliers. Error
+multiplies along a chain, and one weak shortcut costs more than an extra strong hop.
+Routing over `nx.maximum_spanning_tree` sends it through 84, 409 and 173 instead, one
+hop longer and far stronger, which took its spurious roll from 29 degrees to 17.
+
+**Net effect on the horizon**, measured by fitting a line to the sky to ground boundary
+across the mosaic:
+
+| | tilt | horizon flatness (std) |
+|---|---:|---:|
+| before | -0.73 deg | 86.7 px |
+| after | **+0.09 deg** | **77.2 px** |
+
+**Wave correction turned out not to be the answer.** `cv2.detail.waveCorrect` is wired up
+and available as `compose.wave_correct`, but it is defaulted to `none`, because with the
+sign bug fixed it measurably hurts: +0.33 deg of tilt against +0.09, and a less flat
+horizon, 80.7 px against 77.2. It expects cameras that came out of bundle adjustment,
+and here the rotations come from chained homographies. Revisit it when item 2 lands.
+
+**What is still left.** `0552` keeps 17 degrees of spurious roll and `0540` keeps 6.5,
+and both grow with distance from the reference. That residue is accumulated chain error
+and it is what bundle adjustment exists to remove. Item 2 is still the real fix.
+
+---
+
 ## Smaller observations
 
 **`infer_order` transposes locally on densely connected graphs.** On the 25 image

@@ -43,6 +43,12 @@ EXPOSURE_TYPES: dict[str, str] = {
     "gain_blocks": "ExposureCompensator_GAIN_BLOCKS",
 }
 
+#: ``compose.wave_correct`` to the ``cv2.detail.WAVE_CORRECT_*`` enum name.
+WAVE_CORRECT_KINDS: dict[str, str] = {
+    "horiz": "WAVE_CORRECT_HORIZ",
+    "vert": "WAVE_CORRECT_VERT",
+}
+
 #: Warped tile: image, its 8 bit mask and its top left corner on the canvas.
 Tile = tuple[np.ndarray, np.ndarray, tuple[int, int]]
 
@@ -102,9 +108,16 @@ def chain_homographies(
 ) -> dict[str, np.ndarray]:
     """Compose pairwise homographies along the graph path to ``reference``.
 
+    The path runs over the maximum spanning tree, so the chain goes through the
+    edges with the most inliers rather than through the fewest hops. Error
+    multiplies along the chain, and one weak edge taken as a shortcut costs far
+    more than an extra strong hop: routing this way took the worst frame of the
+    default scene from 29 degrees of spurious roll down to 17.
+
     The reference gets the identity. A node with no path to the reference is
     logged and left out, so a disconnected intruder never reaches the canvas.
     """
+    routes = nx.maximum_spanning_tree(graph, weight="weight")
     chained: dict[str, np.ndarray] = {}
     for name in order:
         if name == reference:
@@ -114,7 +127,7 @@ def chain_homographies(
             logger.warning("'%s' is not a node of the graph; skipping it", name)
             continue
         try:
-            path: list[str] = nx.shortest_path(graph, name, reference)
+            path: list[str] = nx.shortest_path(routes, name, reference)
         except nx.NetworkXNoPath:
             logger.warning(
                 "no path from '%s' to the reference '%s'; skipping it", name, reference
@@ -356,13 +369,53 @@ def _rotation_from_homography(intrinsics: np.ndarray, homography: np.ndarray) ->
     With the reference at identity, H = K R^-1 K^-1, hence R = K^-1 H^-1 K. The
     SVD projects the noisy result back onto the nearest true rotation matrix.
     """
+    # H and -H are the same projective transform, but findHomography normalizes
+    # H[2,2] to 1, and that flips the sign of the whole matrix whenever the true
+    # [2,2] is negative, which happens once a frame is far enough from the
+    # reference. The determinant then goes negative, the SVD below falls into the
+    # reflection branch, and the rotation comes back wrong by more than 100
+    # degrees. Restoring the sign is what keeps the end frames upright.
+    scaled = np.asarray(homography, dtype=np.float64)
+    if np.linalg.det(scaled) < 0.0:
+        scaled = -scaled
     matrix = intrinsics.astype(np.float64)
-    rotation = np.linalg.inv(matrix) @ np.linalg.inv(homography) @ matrix
+    rotation = np.linalg.inv(matrix) @ np.linalg.inv(scaled) @ matrix
     u, _, vt = np.linalg.svd(rotation)
     rotation = u @ vt
     if np.linalg.det(rotation) < 0.0:
         rotation = u @ np.diag([1.0, 1.0, -1.0]) @ vt
     return np.ascontiguousarray(rotation, dtype=np.float32)
+
+
+def _mean_roll_degrees(rotations: Sequence[np.ndarray]) -> float:
+    """Mean roll of the rotations, in degrees, zero when the horizon is level."""
+    return float(np.mean([np.degrees(np.arctan2(r[1, 0], r[0, 0])) for r in rotations]))
+
+
+def _wave_correct(rotations: list[np.ndarray], kind: str) -> list[np.ndarray]:
+    """Straighten the horizon by pushing the accumulated roll back towards zero.
+
+    The rotations come from :func:`_rotation_from_homography`, already float32 and
+    contiguous, which is what ``waveCorrect`` insists on.
+    """
+    if kind == "none":
+        return rotations
+    detail = _cv_attr("detail")
+    before = _mean_roll_degrees(rotations)
+    try:
+        corrected = detail.waveCorrect(rotations, getattr(detail, WAVE_CORRECT_KINDS[kind]))
+    except cv2.error as exc:
+        logger.warning(
+            "wave correction (%s) failed (%s); keeping the uncorrected rotations", kind, exc
+        )
+        return rotations
+    # Some builds return the corrected list, others edit it in place.
+    out = list(corrected) if corrected is not None else rotations
+    logger.info(
+        "wave correct (%s): mean roll %.2f -> %.2f deg over %d rotations",
+        kind, before, _mean_roll_degrees(out), len(out),
+    )
+    return out
 
 
 def _warp_rotation(
@@ -372,29 +425,36 @@ def _warp_rotation(
     projection: str,
     focal: float,
     canvas_max: int,
+    wave_correct: str,
 ) -> tuple[list[Tile], int, int]:
     """Warp onto a cylinder or a sphere with ``cv2.PyRotationWarper``."""
     warper = _cv_attr("PyRotationWarper")(PROJECTION_NAMES[projection], focal)
-    plans: list[tuple[np.ndarray, np.ndarray]] = []
-    rois: list[tuple[int, int, int, int]] = []
+    intrinsics_all: list[np.ndarray] = []
+    rotations: list[np.ndarray] = []
     for name in names:
-        image = sources[name]
-        height, width = image.shape[:2]
+        height, width = sources[name].shape[:2]
         intrinsics = np.array(
             [[focal, 0.0, width / 2.0], [0.0, focal, height / 2.0], [0.0, 0.0, 1.0]],
             dtype=np.float32,
         )
-        rotation = _rotation_from_homography(intrinsics, homographies[name])
+        intrinsics_all.append(intrinsics)
+        rotations.append(_rotation_from_homography(intrinsics, homographies[name]))
+
+    # Straighten before the ROIs: the canvas is sized from the corrected orientation.
+    rotations = _wave_correct(rotations, wave_correct)
+
+    rois: list[tuple[int, int, int, int]] = []
+    for name, intrinsics, rotation in zip(names, intrinsics_all, rotations):
+        height, width = sources[name].shape[:2]
         x, y, roi_w, roi_h = warper.warpRoi((width, height), intrinsics, rotation)
-        plans.append((intrinsics, rotation))
         rois.append((int(x), int(y), int(roi_w), int(roi_h)))
 
     shifted, canvas_w, canvas_h = _normalize_rois(rois)
     _check_canvas(names, shifted, canvas_w, canvas_h, canvas_max)
 
     tiles: list[Tile] = []
-    for name, (intrinsics, rotation), (x, y, _, _) in tqdm(
-        list(zip(names, plans, shifted)),
+    for name, intrinsics, rotation, (x, y, _, _) in tqdm(
+        list(zip(names, intrinsics_all, rotations, shifted)),
         desc=f"Warping to the {projection} surface",
         unit="img",
     ):
@@ -600,7 +660,8 @@ def compose_panorama(
         if focal is not None:
             try:
                 tiles, canvas_w, canvas_h = _warp_rotation(
-                    sources, names, homographies, config.projection, focal, config.canvas_max
+                    sources, names, homographies, config.projection, focal,
+                    config.canvas_max, config.wave_correct,
                 )
             except (cv2.error, RuntimeError, np.linalg.LinAlgError) as exc:
                 # The rotation warper is an approximation here: the rotations come

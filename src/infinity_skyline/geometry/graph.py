@@ -3,7 +3,8 @@
 Two questions are answered here. Which images belong to the same scene at all
 (an intruder from another shoot simply never connects, so it falls outside the
 largest connected component), and in which order the ones that do belong were
-swept, since a panorama is a chain and the chain is the graph diameter path.
+swept, since a panorama is a chain and the chain is recovered by spectral
+seriation of the weighted graph.
 """
 
 from __future__ import annotations
@@ -95,32 +96,42 @@ def rejected_images(graph: nx.Graph, config: GraphConfig) -> list[str]:
     return rejected
 
 
+def _spectral_order(sub: nx.Graph, nodes: list[str]) -> list[str]:
+    """Sort one connected component by its Fiedler vector."""
+    if len(nodes) <= 2:
+        return list(nodes)
+    adjacency = np.array(
+        [
+            [float(sub[u][v].get("weight", 1.0)) if sub.has_edge(u, v) else 0.0 for v in nodes]
+            for u in nodes
+        ],
+        dtype=float,
+    )
+    laplacian = np.diag(adjacency.sum(axis=1)) - adjacency
+    # eigh, not eig: the Laplacian is symmetric, so the spectrum is real.
+    values, vectors = np.linalg.eigh(laplacian)
+    fiedler = vectors[:, np.argsort(values)[1]]
+    return [nodes[i] for i in np.argsort(fiedler)]
+
+
 def infer_order(graph: nx.Graph, nodes: Sequence[str]) -> list[str]:
-    """Order ``nodes`` along the sweep, using the diameter path of their subgraph."""
+    """Order ``nodes`` along the sweep by spectral seriation (the Fiedler vector).
+
+    The diameter path used before dropped frames: a shortcut edge between non
+    neighbours (0547--0551, 80 inliers) short circuits the shortest path, so
+    0548 and 0555 fell off the chain and a heuristic reinserted them in the
+    wrong slot. The Fiedler vector weighs every edge at once, keeping all nodes.
+    """
     sub = graph.subgraph(nodes)
     if sub.number_of_nodes() == 0:
         return []
     if sub.number_of_nodes() <= 2:
         return list(nodes)
 
-    # Diameter path: the longest of all shortest paths. all_pairs works on a
-    # disconnected subgraph too, it just never leaves each component.
-    lengths = dict(nx.all_pairs_shortest_path_length(sub))
-    source, target = max(
-        ((u, v) for u, reachable in lengths.items() for v in reachable),
-        key=lambda pair: lengths[pair[0]][pair[1]],
-    )
-    order: list[str] = list(nx.shortest_path(sub, source, target))
-
-    # Nodes off the main chain (a branch, or a second component) are slotted in
-    # next to whichever already placed neighbour they match most strongly.
-    for node in nodes:
-        if node in order:
-            continue
-        placed = [(sub[node][other].get("weight", 0), other) for other in sub[node] if other in order]
-        if placed:
-            anchor = max(placed)[1]
-            order.insert(order.index(anchor) + 1, node)
-        else:
-            order.append(node)
+    # A disconnected subgraph has eigenvalue 0 with multiplicity > 1, so its
+    # "second smallest" says nothing: order each component on its own instead.
+    components = sorted(nx.connected_components(sub), key=len, reverse=True)
+    order: list[str] = []
+    for component in components:
+        order.extend(_spectral_order(sub, [n for n in nodes if n in component]))
     return order
