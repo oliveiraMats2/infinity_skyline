@@ -1,0 +1,4 @@
+# ransac_ : estimador robusto da homografia. USAC_MAGSAC, mais robusto (OpenCV >= 4.5).
+extends: ../default.yaml
+run: {id: ransac_magsac, overwrite: true}
+geometry: {ransac: {method: USAC_MAGSAC}}

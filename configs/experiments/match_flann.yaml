@@ -1,0 +1,4 @@
+# match_ : matcher. FLANN, vizinho mais proximo APROXIMADO (rapido, pode perder casamento).
+extends: ../default.yaml
+run: {id: match_flann, overwrite: true}
+matching: {name: flann}

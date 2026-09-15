@@ -1,0 +1,4 @@
+# wave_ : correcao de onda. vert assume varrimento vertical.
+extends: ../default.yaml
+run: {id: wave_vert, overwrite: true}
+compose: {wave_correct: vert}

@@ -1,0 +1,4 @@
+# ransac_ : estimador robusto da homografia. RANSAC classico.
+extends: ../default.yaml
+run: {id: ransac_plain, overwrite: true}
+geometry: {ransac: {method: RANSAC}}

@@ -1,0 +1,7 @@
+# det_ : detector. ORB, descritor binario de 32 bytes.
+# nfeatures igual ao SIFT: sem isso a comparacao de tempo e injusta.
+extends: ../default.yaml
+run: {id: det_orb, overwrite: true}
+detection:
+  name: orb
+  params: {nfeatures: 5000, scaleFactor: 1.2, nlevels: 8, fastThreshold: 20}

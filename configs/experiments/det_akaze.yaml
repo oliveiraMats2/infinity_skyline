@@ -1,0 +1,8 @@
+# det_ : detector. AKAZE, descritor binario de 61 bytes.
+# AKAZE nao tem teto nativo de keypoints: o nfeatures aqui e aplicado por truncagem
+# nos de maior resposta, depois do detectAndCompute, para o teto ser o mesmo dos outros.
+extends: ../default.yaml
+run: {id: det_akaze, overwrite: true}
+detection:
+  name: akaze
+  params: {nfeatures: 5000, threshold: 0.001, nOctaves: 4, nOctaveLayers: 4}

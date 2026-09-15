@@ -1,0 +1,5 @@
+# wave_ : correcao de onda, endireita o horizonte rotacionando as cameras em bloco.
+# horiz assume varrimento horizontal. E o default.
+extends: ../default.yaml
+run: {id: wave_horiz, overwrite: true}
+compose: {wave_correct: horiz}

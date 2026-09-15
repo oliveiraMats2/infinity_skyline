@@ -1,0 +1,5 @@
+# graph_ : limiar de aresta do grafo. Frouxo: aceita par fraco.
+# Conecta mais imagens, mas deixa entrar casamento falso de estrutura repetitiva.
+extends: ../default.yaml
+run: {id: graph_loose, overwrite: true}
+graph: {min_inliers: 15, min_inlier_ratio: 0.15}

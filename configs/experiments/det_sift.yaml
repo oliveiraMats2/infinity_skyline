@@ -1,0 +1,6 @@
+# det_ : detector. Baseline explicito, igual ao default.
+extends: ../default.yaml
+run: {id: det_sift, overwrite: true}
+detection:
+  name: sift
+  params: {nfeatures: 5000, contrastThreshold: 0.04, edgeThreshold: 10, sigma: 1.6}

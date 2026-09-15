@@ -1,0 +1,5 @@
+# proj_ : superficie de projecao. Esferica. Necessaria quando o varrimento tambem sobe
+# e desce, nao so gira na horizontal.
+extends: ../default.yaml
+run: {id: proj_spherical, overwrite: true}
+compose: {projection: spherical}

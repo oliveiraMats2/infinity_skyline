@@ -1,0 +1,5 @@
+# strategy_ : quais pares testar. Todos contra todos, O(n^2).
+# Necessario quando a pasta esta fora de ordem: e o unico jeito de descobrir a ordem.
+extends: ../default.yaml
+run: {id: strategy_all_pairs, overwrite: true}
+matching: {strategy: all_pairs}

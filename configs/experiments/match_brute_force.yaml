@@ -1,0 +1,4 @@
+# match_ : matcher. Forca bruta, vizinho EXATO (lento, e o teto de qualidade).
+extends: ../default.yaml
+run: {id: match_brute_force, overwrite: true}
+matching: {name: brute_force}

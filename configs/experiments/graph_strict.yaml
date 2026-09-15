@@ -1,0 +1,5 @@
+# graph_ : limiar de aresta do grafo. Rigido: so par com sobreposicao forte.
+# Rejeita intrusa com folga, mas pode partir a cadeia e descartar imagem legitima.
+extends: ../default.yaml
+run: {id: graph_strict, overwrite: true}
+graph: {min_inliers: 60, min_inlier_ratio: 0.40}

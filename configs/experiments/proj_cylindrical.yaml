@@ -1,0 +1,4 @@
+# proj_ : superficie de projecao. Cilindrica, o default. Boa para varrimento horizontal.
+extends: ../default.yaml
+run: {id: proj_cylindrical, overwrite: true}
+compose: {projection: cylindrical}

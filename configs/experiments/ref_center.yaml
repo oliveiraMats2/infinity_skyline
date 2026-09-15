@@ -1,0 +1,5 @@
+# ref_ : quadro de referencia, onde a distorcao acumulada se concentra.
+# center espalha o erro para os dois lados em vez de empilhar numa ponta.
+extends: ../default.yaml
+run: {id: ref_center, overwrite: true}
+compose: {reference: center}

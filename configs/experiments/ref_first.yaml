@@ -1,0 +1,5 @@
+# ref_ : quadro de referencia. O primeiro da ordem inferida.
+# Toda a deriva da cadeia se acumula na outra ponta, que e o pior caso.
+extends: ../default.yaml
+run: {id: ref_first, overwrite: true}
+compose: {reference: first}

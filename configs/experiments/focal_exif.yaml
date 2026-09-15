@@ -1,0 +1,6 @@
+# focal_ : origem da focal, que decide a distancia angular entre os quadros.
+# Declarada a partir do EXIF: lente de 18 mm em sensor APS-C de 22.3 mm.
+# Convertida contra a largura de trabalho, entao mudar max_dimension nao exige editar aqui.
+extends: ../default.yaml
+run: {id: focal_exif, overwrite: true}
+compose: {focal_px: null, focal_mm: 18.0, sensor_width_mm: 22.3}

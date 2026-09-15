@@ -1,0 +1,4 @@
+# graph_ : limiar de aresta do grafo. Valores do default, como referencia.
+extends: ../default.yaml
+run: {id: graph_default, overwrite: true}
+graph: {min_inliers: 30, min_inlier_ratio: 0.25}

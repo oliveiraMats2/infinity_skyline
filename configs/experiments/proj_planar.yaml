@@ -1,0 +1,7 @@
+# proj_ : superficie de projecao. Planar, projeta tudo no plano tangente a referencia.
+# Exata em setor estreito e mais barata, mas DIVERGE conforme o angulo se afasta da
+# referencia. Nas cenas deste repositorio ela estoura o canvas_max e a run aborta.
+# Esta config existe justamente para demonstrar esse limite.
+extends: ../default.yaml
+run: {id: proj_planar, overwrite: true}
+compose: {projection: planar}

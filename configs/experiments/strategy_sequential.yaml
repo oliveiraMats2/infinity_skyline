@@ -1,0 +1,6 @@
+# strategy_ : quais pares testar. So vizinhos consecutivos, O(n).
+# ATENCAO: assume que os arquivos JA estao na ordem de captura. Se estiverem fora de
+# ordem o grafo se parte. Serve para medir o custo que o all_pairs cobra.
+extends: ../default.yaml
+run: {id: strategy_sequential, overwrite: true}
+matching: {strategy: sequential}

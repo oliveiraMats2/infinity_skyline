@@ -1,0 +1,7 @@
+# focal_ : origem da focal. Tudo nulo, entao o pipeline estima a focal a partir das
+# homografias. ATENCAO: a forma fechada e mal condicionada sob rotacao pequena. Nesta
+# cena ela deu 3471 px contra os 1291 px do EXIF, 2.7x, e o mosaico saiu com buracos.
+# Esta config existe para reproduzir esse defeito, nao para uso normal.
+extends: ../default.yaml
+run: {id: focal_estimated, overwrite: true}
+compose: {focal_px: null, focal_mm: null, sensor_width_mm: null}

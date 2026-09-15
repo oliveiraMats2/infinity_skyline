@@ -1,0 +1,4 @@
+# wave_ : correcao de onda desligada, o horizonte fica como a cadeia de homografias deixou.
+extends: ../default.yaml
+run: {id: wave_none, overwrite: true}
+compose: {wave_correct: none}

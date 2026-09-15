@@ -1,0 +1,6 @@
+# ref_ : quadro de referencia. Indice explicito na ordem inferida (0 = o primeiro).
+# Use quando voce quiser fixar a referencia num quadro especifico, por exemplo o mais
+# nitido ou o de melhor exposicao.
+extends: ../default.yaml
+run: {id: ref_index, overwrite: true}
+compose: {reference: 0}
