@@ -138,8 +138,12 @@ Run one like any other config, or hand several to `sweep`:
 ```bash
 python main.py panorama --config configs/experiments/proj_spherical.yaml
 python main.py sweep configs/experiments/proj_*.yaml     # one axis
-python main.py sweep configs/experiments/*.yaml          # all of them
+python main.py sweep configs/experiments/{det,match,strategy,ransac,graph,proj,ref,focal,wave}_*.yaml
 ```
+
+The second form spells the prefixes out because `configs/experiments/` also holds
+`sift_vs_orb_vs_akaze.yaml`, which is not a panorama variant: it is the `evaluate` config,
+and it is run with `main.py evaluate` instead.
 
 `sweep` is orchestration only: every config goes through the same `panorama` command, and
 it prints the canvas size and run directory of each. A variant that fails does not stop
@@ -189,8 +193,8 @@ artifacts of the earlier ones.
 ## Configs
 
 - `configs/default.yaml` is the base config; every field carries the schema default.
-- `configs/experiments/sift_vs_orb_vs_akaze.yaml` extends it and overrides only what the
-  experiment changes (`extends` merges recursively, the child wins).
+- `configs/experiments/` holds full copies of it, never `extends`: one per variation axis
+  (see the sweep section), plus `sift_vs_orb_vs_akaze.yaml` for `evaluate` mode.
 - `configs/detectors.yaml` is not a config: it is a reusable set of per-detector
   parameter presets to copy into `evaluate.per_detector_params`.
 
