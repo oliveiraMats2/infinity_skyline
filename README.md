@@ -89,6 +89,19 @@ python main.py sweep     configs/experiments/proj_*.yaml # one panorama per conf
 from the same images by `cv2.Stitcher`, so every run is comparable without a second pass.
 `baseline` produces only that file, for when the reference is all you want.
 
+**Expect that file to be byte for byte identical across experiments, and do not read
+anything into it.** `cv2.Stitcher` does not read this config at all: it runs its own
+features, camera estimation and bundle adjustment, so it depends on the frames and their
+resolution and on nothing else. None of the nine variation axes changes the frames, so
+none of them changes the reference. It is computed once per image set into
+`results/_reference/` and copied from there, which is why a 25 config sweep stitches once
+rather than 25 times.
+
+The set of frames does move occasionally, and then the reference genuinely differs: an
+axis that changes the graph, such as a detector or a threshold, can drop an image from the
+main component. That is why the cache is keyed by the frame names and the working
+resolution, not by the scene alone.
+
 It shares nothing with the pipeline under study: OpenCV runs its own features, camera
 estimation, bundle adjustment and wave correction. That is the point. Our own output
 cannot tell us whether it is right, only whether it is self consistent, and those are

@@ -13,11 +13,13 @@ reproducible from the file alone.
 
 from __future__ import annotations
 
+import hashlib
 import random
+import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Mapping
 
 import cv2
 import numpy as np
@@ -125,6 +127,40 @@ def _load_color(images: list[Path], config: Config) -> dict[str, np.ndarray]:
         path.stem: load_image(path, grayscale=False, max_dimension=config.data.max_dimension)
         for path in tqdm(images, desc="load", unit="img")
     }
+
+
+def _stitcher_reference(
+    config: Config, images: Mapping[str, np.ndarray], out_path: Path
+) -> None:
+    """Write the cv2.Stitcher reference for ``images``, computing it once per image set.
+
+    The reference depends on the frames and their resolution and on nothing else:
+    cv2.Stitcher reads none of this config, running its own features, camera estimation
+    and bundle adjustment. So two experiments that feed it the same frames get the same
+    mosaic, and a sweep over 25 configs would otherwise stitch the same thing 25 times.
+    It is cached under ``results/_reference/`` and copied in, so the file still sits
+    beside the panorama it is meant to be compared against.
+
+    The set of frames is part of the key because it does move: an axis that changes the
+    graph, such as a detector or a threshold, can drop an image from the main component,
+    and then the reference is genuinely a different one.
+    """
+    names = sorted(images)
+    digest = hashlib.sha1(
+        ("|".join(names) + f"@{config.data.max_dimension}").encode()
+    ).hexdigest()[:10]
+    cached = (
+        config.run.output_root
+        / "_reference"
+        / f"{config.data.input_dir.name}_{len(names)}img_{digest}.png"
+    )
+    if cached.exists():
+        logger.info("cv2.Stitcher reference reused from %s", cached)
+    else:
+        save_image(cached, stitch_with_opencv([images[name] for name in names]))
+        logger.info("cv2.Stitcher reference computed: %s", cached)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(cached, out_path)
 
 
 def _stage_geometry(
@@ -257,11 +293,9 @@ def panorama(config_path: ConfigOption) -> Path:
         draw_deghosting_comparison(
             result.panorama, result.naive, run_dir / "figures" / "deghosting.png"
         )
-    # Independent reference beside our own output, on the same images, so every run is
-    # comparable without a second pass. Its failure is not ours, so it only warns.
     try:
-        save_image(out_dir / "opencv_stitcher.png", stitch_with_opencv(list(color.values())))
-    except (RuntimeError, cv2.error) as exc:
+        _stitcher_reference(config, color, out_dir / "opencv_stitcher.png")
+    except (RuntimeError, cv2.error) as exc:  # its failure is not ours
         logger.warning("cv2.Stitcher reference not produced: %s", exc)
     return run_dir
 
@@ -312,7 +346,7 @@ def baseline(config_path: ConfigOption) -> Path:
     config, run_dir = _prepare(config_path)
     color = _load_color(_scene_images(config), config)
     out_path = run_dir / "panorama" / "opencv_stitcher.png"
-    save_image(out_path, stitch_with_opencv(list(color.values())))
+    _stitcher_reference(config, color, out_path)
     logger.info("reference written to %s", out_path)
     return run_dir
 
@@ -350,11 +384,9 @@ def pipeline(config_path: ConfigOption) -> None:
             draw_deghosting_comparison(result.panorama, result.naive, figures / "deghosting.png")
         if result.seam_mask is not None:
             save_image(out_dir / "seam_mask.png", result.seam_mask)
-        # Independent reference beside our own output, so the two can be compared
-        # without a second run. Its failure is not ours, so it only warns.
         try:
-            save_image(out_dir / "opencv_stitcher.png", stitch_with_opencv(list(scene.values())))
-        except (RuntimeError, cv2.error) as exc:
+            _stitcher_reference(config, scene, out_dir / "opencv_stitcher.png")
+        except (RuntimeError, cv2.error) as exc:  # its failure is not ours
             logger.warning("cv2.Stitcher reference not produced: %s", exc)
     logger.info("pipeline finished: %s", run_dir)
 
