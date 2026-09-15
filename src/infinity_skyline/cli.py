@@ -223,7 +223,7 @@ def visualize(config_path: ConfigOption) -> None:
 
 
 @app.command()
-def panorama(config_path: ConfigOption) -> None:
+def panorama(config_path: ConfigOption) -> Path:
     """Stage 3 end to end: an unordered folder in, one panorama PNG out."""
     config, run_dir = _prepare(config_path)
     images, keypoints, matches = _stage_geometry(config, run_dir)
@@ -257,6 +257,41 @@ def panorama(config_path: ConfigOption) -> None:
         draw_deghosting_comparison(
             result.panorama, result.naive, run_dir / "figures" / "deghosting.png"
         )
+    return run_dir
+
+
+@app.command()
+def sweep(
+    config_paths: Annotated[
+        list[Path],
+        typer.Argument(exists=True, dir_okay=False, help="Config files, one panorama each."),
+    ],
+) -> None:
+    """Compose one panorama per config given, then report what each one produced.
+
+    Orchestration only: every config goes through the same `panorama` command above.
+    A variant that fails does not stop the rest, because some of them exist to
+    demonstrate a limit rather than to succeed.
+    """
+    rows: list[tuple[str, str, str]] = []
+    for config_path in tqdm(config_paths, desc="sweep", unit="config"):
+        name = config_path.stem
+        try:
+            run_dir = panorama(config_path)
+        except Exception as exc:  # a sweep must survive its own failures
+            rows.append((name, "FALHOU", f"{type(exc).__name__}: {exc}"))
+            logger.warning("%s failed: %s", name, exc)
+            continue
+        image = cv2.imread(str(run_dir / "panorama" / "panorama.png"))
+        shape = "missing" if image is None else f"{image.shape[1]}x{image.shape[0]}"
+        rows.append((name, "ok", f"{shape}  {run_dir}"))
+
+    width = max(len(name) for name, _, _ in rows)
+    typer.echo("")
+    for name, status, detail in rows:
+        typer.echo(f"{name:<{width}}  {status:<7}  {detail}")
+    ok = sum(1 for _, status, _ in rows if status == "ok")
+    typer.echo(f"\n{ok} of {len(rows)} composed a panorama.")
 
 
 @app.command()

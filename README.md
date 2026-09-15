@@ -113,9 +113,10 @@ factor of two. Item 6 of `future_works.md` has the measurements.
 
 ## Sweeping one axis at a time
 
-`configs/experiments/` holds one config per variant, each extending `default.yaml` and
-overriding a single axis, so any two configs sharing a prefix differ in exactly one thing.
-The prefix says which axis:
+`configs/experiments/` holds one config per variant. Each is a **full copy** of
+`default.yaml`, comments included, with a single axis edited and a header saying which,
+so two copies sharing a prefix differ in exactly one line and nothing is inherited from
+anywhere. The prefix names the axis:
 
 | prefix | axis | variants |
 |---|---|---|
@@ -129,23 +130,27 @@ The prefix says which axis:
 | `focal_` | where the focal comes from | exif, estimated |
 | `wave_` | `compose.wave_correct` | horiz, vert, none |
 
-Run one of them like any other config, or run all of them:
+Each sets its own `run.id` to its own name, so a variant lands in
+`results/<config name>/` and two panoramas of the same prefix can be opened side by side.
+
+Run one like any other config, or hand several to `sweep`:
 
 ```bash
-./run_sweep.sh                    # the default scene
-./run_sweep.sh data/low_bright    # another one
+python main.py panorama --config configs/experiments/proj_spherical.yaml
+python main.py sweep configs/experiments/proj_*.yaml     # one axis
+python main.py sweep configs/experiments/*.yaml          # all of them
 ```
 
-The script is orchestration only: it calls `main.py convert` once and then
-`main.py panorama` per config, and reads each `results/<run_id>/run.log` for the summary
-it prints. Each variant lands in `results/<config name>/`, so two panoramas of the same
-prefix can be opened side by side. A variant that fails does not stop the others, which
-matters because some are there to demonstrate a limit: `proj_planar` is expected to abort
-on these scenes, and `focal_estimated` is expected to produce a mosaic with gaps.
+`sweep` is orchestration only: every config goes through the same `panorama` command, and
+it prints the canvas size and run directory of each. A variant that fails does not stop
+the rest, which matters because two of them exist to demonstrate a limit rather than to
+succeed: `proj_planar` is expected to abort on these scenes, since a planar mosaic
+diverges as the sweep widens, and `focal_estimated` is expected to produce a mosaic with
+gaps, since recovering the focal from the homographies is ill conditioned here.
 
 Note that the first two axes are also what `evaluate` mode sweeps, but `evaluate` stops at
-`metrics.csv` and never composes a panorama. Use the configs above when you want to look
-at the mosaics themselves.
+`metrics.csv` and never composes a panorama. Use these configs when the mosaic itself is
+the subject.
 
 ## Two modes of operation
 

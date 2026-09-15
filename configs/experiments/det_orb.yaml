@@ -1,7 +1,161 @@
-# det_ : detector. ORB, descritor binario de 32 bytes.
-# nfeatures igual ao SIFT: sem isso a comparacao de tempo e injusta.
-extends: ../default.yaml
-run: {id: det_orb, overwrite: true}
+# =============================================================================
+# det_orb
+#   eixo     : detection.name
+#   variante : orb
+#
+# Copia completa de configs/default.yaml com APENAS este eixo alterado, para que
+# duas copias do mesmo prefixo difiram em exatamente uma coisa.
+#
+# ORB, descritor binario de 32 bytes, muito mais rapido.
+# O bloco params foi trocado pelos parametros que o cv2.ORB_create aceita,
+# mantendo nfeatures igual, senao a comparacao de tempo fica injusta.
+# =============================================================================
+
+# Configuracao base do infinity-skyline.
+# Espelha campo a campo os schemas de src/infinity_skyline/config.py, sempre com o
+# valor default do schema. Os modelos usam extra="forbid": qualquer chave a mais
+# aqui quebra a validacao, entao nao invente campos.
+# Experimentos herdam este arquivo via `extends:` (merge recursivo, filho vence).
+
+# Identidade e disciplina do run: onde escrever, com que semente, quanto falar.
+run:
+  id: det_orb                 # id fixo: artefatos em results/det_orb/
+  output_root: results        # raiz de saida; run_dir() = output_root / id
+  seed: 42                    # semente fixa: RANSAC amostra aleatoriamente, sem isso o numero de inliers muda a cada execucao
+  log_level: INFO             # DEBUG mostra cada imagem pulada, par descartado e parametro ignorado
+  overwrite: true             # a varredura reexecuta, entao sobrescreve
+  cache: true                 # reaproveita .npz de keypoints e matches ja calculados, o que torna barato reexecutar so a etapa final
+
+# Uma pasta = uma cena. O pipeline roda sobre UMA cena por vez.
+data:
+  # Esta e a pasta de PNG ja convertidos, ou seja, a SAIDA do `convert`, nao a origem RAW.
+  # O `convert` nao le a origem daqui, ela vai no --source:
+  #   python main.py convert --config configs/default.yaml --source data/high_bright
+  input_dir: data/processed/high_bright
+  intruders_dir: null         # apontar para outra pasta de cena (por exemplo data/processed/360_graus_images) injeta imagens estranhas e testa a rejeicao da Etapa 4
+  extensions:
+    - .png                    # `convert` escreve PNG lossless; ler .CR2 aqui funcionaria, mas pagaria o custo do rawpy em toda repeticao
+  grayscale: true             # SIFT, ORB e AKAZE trabalham em um canal; converter uma vez no load evita reconverter dentro do laco de timing
+  max_dimension: 1600         # lado maior em pixels; mudar este valor invalida qualquer comparacao anterior, porque numero de keypoints, tempo de deteccao e erro de reprojecao escalam todos com a resolucao
+
+# Detector usado no modo geracao (o modo evaluate ignora isto e varre evaluate.detectors).
 detection:
-  name: orb
-  params: {nfeatures: 5000, scaleFactor: 1.2, nlevels: 8, fastThreshold: 20}
+  name: orb                   # eixo desta copia
+  params:
+    nfeatures: 5000           # teto IGUAL ao dos outros detectores
+    scaleFactor: 1.2          # fator entre niveis da piramide
+    nlevels: 8                # niveis da piramide, afeta robustez a escala
+    fastThreshold: 20
+  repetitions: 10             # cada imagem e detectada N vezes e o tempo medio vai para times_ms; uma unica medida e ruido de cache e de turbo da CPU
+  warmup: 2                   # execucoes descartadas antes de medir, para tirar a alocacao inicial do OpenCV da conta
+
+# Como os descritores de duas imagens sao confrontados.
+matching:
+  name: flann                 # flann e aproximado e rapido; brute_force e exato e serve de referencia
+  flann:
+    float_descriptors: {}     # vazio = bloco KDTREE padrao para SIFT (descritor float32)
+    binary_descriptors: {}    # vazio = bloco LSH padrao para ORB e AKAZE (descritor uint8); KDTREE nao funciona em distancia de Hamming
+    checks: 50                # folhas visitadas por consulta; mais checks = mais preciso e mais lento
+  brute_force:
+    cross_check: false        # tem que ser false: cross_check e mutuamente exclusivo com knnMatch(k=2), e o teste de razao de Lowe exige os 2 vizinhos mais proximos. O schema rejeita true
+  strategy: all_pairs         # all_pairs descobre a topologia real da cena (e as adjacencias do fechamento de 360 graus); sequential so liga vizinhos consecutivos
+
+# Corte dos matches brutos antes da geometria.
+filters:
+  lowe_ratio: 0.75            # aceita o melhor vizinho so se ele for 25% melhor que o segundo; mais baixo = mais limpo e menos matches
+  min_matches: 10             # abaixo disto o par nem vai para o RANSAC (homografia precisa de 4 pontos, mas 4 sem folga e ajuste de ruido)
+
+# Modelo geometrico estimado por par.
+geometry:
+  model: homography           # cena panoramica girando em torno do centro optico: a relacao entre vistas e uma homografia. `fundamental` nao define warp e o schema bloqueia a composicao
+  ransac:
+    method: USAC_MAGSAC       # MAGSAC nao depende de um limiar rigido de inlier, o que o torna mais estavel que o RANSAC classico
+    reproj_threshold: 3.0     # erro de reprojecao em pixels para contar como inlier
+    max_iters: 5000
+    confidence: 0.995
+
+# Etapa 4: grafo de conectividade entre as imagens da cena.
+graph:
+  min_inliers: 30             # barra o par com sobreposicao pequena demais: poucos inliers, mesmo que quase todos os matches concordem
+  min_inlier_ratio: 0.25      # barra o par cujo consenso e fraco: muitos matches, mas a maioria e ruido que o RANSAC descartou
+  build_order: true           # infere a ordem da varredura panoramica pelo caminho de maior diametro do grafo
+  reject_isolated: true       # tudo fora da maior componente conexa e intruso de outra cena
+
+# Etapas 5 e 6: warp, costura e blending do mosaico.
+compose:
+  reference: center           # frame de referencia no meio da sequencia: espalha a distorcao acumulada para os dois lados em vez de concentra-la numa ponta
+  projection: cylindrical     # a cena padrao (high_bright) e um varrimento largo, e a projecao planar diverge conforme o angulo se afasta da referencia: em planar o canvas pedia 25615x13310 px, em cilindrica cabe em 12341x1706. Use planar apenas em setores estreitos, onde ela e exata e mais barata
+  canvas_max: 20000           # teto do canvas em pixels, contra homografia degenerada que explodiria a memoria. Precisa acomodar o mosaico legitimo: 8 quadros de 1600 px em cilindrica dao ~12300 px de largura
+  # Focal usada para montar as intrinsecas na projecao nao planar: ela decide a que
+  # distancia angular cada quadro cai no cilindro. Estimar a focal a partir das
+  # homografias e mal condicionado sob rotacao pequena (nesta cena a estimativa deu
+  # 3471 px contra os 1291 px reais, 2.7x, e abria buracos entre os quadros), entao
+  # declare a camera quando ela for conhecida. focal_px tem prioridade sobre o par mm.
+  focal_px: null            # focal direto em pixels; null = usa o par abaixo
+  focal_mm: 18.0            # EXIF das imagens: lente em 18 mm
+  sensor_width_mm: 22.3     # sensor APS-C da Canon EOS Rebel T5i
+  # Endireita o horizonte: joga o roll acumulado ao longo do varrimento de volta para
+  # zero, entao o panorama para de entortar e a ponta nao entra torta. So tem efeito
+  # quando `projection` nao e planar, porque so ai o pipeline monta rotacoes.
+  # Correcao de onda: endireita o horizonte rotacionando todas as cameras em bloco.
+  # Medido nesta cena: inclinacao do horizonte +0.62 graus com ela contra +0.81 sem, e
+  # horizonte mais plano (91 px de desvio contra 95). O ganho e pequeno porque as
+  # rotacoes vem de homografias encadeadas e nao de bundle adjustment; reavalie quando
+  # o item 2 do future_works entrar. Opcoes: horiz | vert | none. So vale em nao planar.
+  wave_correct: horiz
+  seam:
+    finder: graphcut          # graphcut acha o corte de menor custo de cor; dp_color e mais rapido e pior
+    scale: 0.25               # a costura roda em escala reduzida porque o graph cut e O(pixels) e a linha de corte e uma estrutura de baixa frequencia: achar em 1/4 e reescalar da o mesmo corte por uma fracao do tempo e da memoria
+  blend:
+    method: multiband         # multiband dissolve a emenda por faixa de frequencia; feather so faz rampa linear
+    bands: 5
+    sharpness: 0.02           # usado apenas por feather
+  exposure: gain_blocks       # compensacao de exposicao por blocos: as pastas low_bright e high_bright provam que a mesma vista chega com brilhos diferentes, e um ganho global unico nao corrige vinhetagem nem variacao dentro do quadro
+  save_naive: true            # guarda tambem a media simples sem costura, que e a comparacao de deghosting da Etapa 6.4
+
+# Modo evaluate: varre a matriz detectores x matchers e produz metrics.csv.
+evaluate:
+  detectors:
+    - sift
+    - orb
+    - akaze
+  matchers:
+    - flann
+    - brute_force
+  metrics:
+    - n_keypoints             # quantos pontos o detector devolveu
+    - detect_time_ms          # tempo medio de detectAndCompute
+    - descriptor_bytes        # bytes por descritor: SIFT 512, ORB 32, AKAZE 61
+    - spatial_dispersion      # espalhamento dos pontos pela imagem; baixo = amontoado num canto
+    - raw_matches             # matches antes do teste de Lowe
+    - filtered_matches        # matches depois do teste de Lowe
+    - match_time_ms
+    - n_inliers               # matches que sobreviveram ao RANSAC
+    - inlier_ratio            # n_inliers / filtered_matches, a metrica principal
+    - reprojection_rmse       # erro residual da homografia, em pixels
+    - success_rate            # fracao de pares que produziram homografia valida
+  per_detector_params: {}     # blocos por detector; veja configs/detectors.yaml e o experimento sift_vs_orb_vs_akaze
+  export:
+    csv: true
+    markdown_table: true
+    plots: true
+
+# Figuras do modo geracao.
+visualize:
+  keypoints:
+    enabled: true
+    rich: true                # desenha tamanho e orientacao de cada keypoint, nao so um ponto
+    max_draw: 500             # desenhar 5000 pontos vira uma mancha ilegivel
+    color: [0, 255, 0]        # BGR
+  matches:
+    enabled: true
+    before_after: true        # painel bruto vs filtrado, que e o que mostra o teste de Lowe trabalhando
+    max_lines: 100
+    inliers_only: false
+  graph:
+    enabled: true
+    layout: spring
+    annotate_weights: true    # escreve o numero de inliers em cada aresta
+  figures:
+    dpi: 150
+    format: png
