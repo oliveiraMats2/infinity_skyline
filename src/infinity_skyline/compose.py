@@ -364,10 +364,14 @@ def _estimate_focal(graph: nx.Graph) -> float | None:
 
 
 def _rotation_from_homography(intrinsics: np.ndarray, homography: np.ndarray) -> np.ndarray:
-    """Camera rotation implied by ``homography`` under a pure rotation model.
+    """Rotation implied by ``homography``, in the convention the warper wants.
 
-    With the reference at identity, H = K R^-1 K^-1, hence R = K^-1 H^-1 K. The
-    SVD projects the noisy result back onto the nearest true rotation matrix.
+    With the reference at identity the homography is H = K R^-1 K^-1, so the
+    camera rotation is R = K^-1 H^-1 K. But cv2.PyRotationWarper turns an image
+    point into a world ray with ``R * K^-1``, which is the inverse of that, so
+    what it must be handed is K^-1 H K. Passing the camera rotation instead lays
+    the frames out in reverse and the whole sweep comes back mirrored.
+    The SVD projects the noisy result onto the nearest true rotation matrix.
     """
     # H and -H are the same projective transform, but findHomography normalizes
     # H[2,2] to 1, and that flips the sign of the whole matrix whenever the true
@@ -379,7 +383,7 @@ def _rotation_from_homography(intrinsics: np.ndarray, homography: np.ndarray) ->
     if np.linalg.det(scaled) < 0.0:
         scaled = -scaled
     matrix = intrinsics.astype(np.float64)
-    rotation = np.linalg.inv(matrix) @ np.linalg.inv(scaled) @ matrix
+    rotation = np.linalg.inv(matrix) @ scaled @ matrix
     u, _, vt = np.linalg.svd(rotation)
     rotation = u @ vt
     if np.linalg.det(rotation) < 0.0:

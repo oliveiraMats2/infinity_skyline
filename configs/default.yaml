@@ -81,12 +81,11 @@ compose:
   # zero, entao o panorama para de entortar e a ponta nao entra torta. So tem efeito
   # quando `projection` nao e planar, porque so ai o pipeline monta rotacoes.
   # Correcao de onda: endireita o horizonte rotacionando todas as cameras em bloco.
-  # Medido nesta cena, ela NAO ajuda: a inclinacao do horizonte fica +0.09 graus sem
-  # ela e +0.33 com ela, e o horizonte fica menos plano (77 px de desvio contra 81).
-  # O motivo e que o waveCorrect espera cameras vindas de bundle adjustment, e aqui as
-  # rotacoes saem de homografias encadeadas. Reavalie quando o item 2 do future_works
-  # (BundleAdjusterRay) entrar. Opcoes: horiz | vert | none. So vale em projecao nao planar.
-  wave_correct: none
+  # Medido nesta cena: inclinacao do horizonte +0.62 graus com ela contra +0.81 sem, e
+  # horizonte mais plano (91 px de desvio contra 95). O ganho e pequeno porque as
+  # rotacoes vem de homografias encadeadas e nao de bundle adjustment; reavalie quando
+  # o item 2 do future_works entrar. Opcoes: horiz | vert | none. So vale em nao planar.
+  wave_correct: horiz
   seam:
     finder: graphcut          # graphcut acha o corte de menor custo de cor; dp_color e mais rapido e pior
     scale: 0.25               # a costura roda em escala reduzida porque o graph cut e O(pixels) e a linha de corte e uma estrutura de baixa frequencia: achar em 1/4 e reescalar da o mesmo corte por uma fracao do tempo e da memoria

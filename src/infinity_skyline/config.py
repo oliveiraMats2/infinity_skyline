@@ -126,7 +126,7 @@ class ComposeConfig(_Base):
     sensor_width_mm: float | None = Field(default=None, gt=0.0)
     # Levels the horizon by sending the accumulated roll back to zero. Only the non
     # planar projections build rotations, so it does nothing under "planar".
-    wave_correct: Literal["horiz", "vert", "none"] = "none"
+    wave_correct: Literal["horiz", "vert", "none"] = "horiz"
     canvas_max: int = Field(default=12000, ge=1)
     seam: SeamConfig = Field(default_factory=SeamConfig)
     blend: BlendConfig = Field(default_factory=BlendConfig)

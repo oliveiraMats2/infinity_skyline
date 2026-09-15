@@ -318,15 +318,58 @@ across the mosaic:
 | before | -0.73 deg | 86.7 px |
 | after | **+0.09 deg** | **77.2 px** |
 
-**Wave correction turned out not to be the answer.** `cv2.detail.waveCorrect` is wired up
-and available as `compose.wave_correct`, but it is defaulted to `none`, because with the
-sign bug fixed it measurably hurts: +0.33 deg of tilt against +0.09, and a less flat
-horizon, 80.7 px against 77.2. It expects cameras that came out of bundle adjustment,
-and here the rotations come from chained homographies. Revisit it when item 2 lands.
+**Wave correction.** `cv2.detail.waveCorrect` is wired up as `compose.wave_correct` and
+defaults to `horiz`. An earlier measurement said it hurt and it was defaulted off; that
+measurement was taken while the rotation convention bug below was still present, so it
+was comparing two wrong layouts. Re-measured after that fix, it helps, though modestly:
++0.62 deg of tilt against +0.81 without it, and a flatter horizon, 91.0 px against 94.6.
+The gain stays small because the rotations come from chained homographies rather than
+from bundle adjustment. Revisit when item 2 lands.
 
 **What is still left.** `0552` keeps 17 degrees of spurious roll and `0540` keeps 6.5,
 and both grow with distance from the reference. That residue is accumulated chain error
 and it is what bundle adjustment exists to remove. Item 2 is still the real fix.
+
+---
+
+## 8. The rotation handed to the warper was inverted, and mirrored the sweep
+
+**Status:** fixed. This is the one a reader is most likely to reintroduce.
+
+`_rotation_from_homography` derived the camera rotation correctly. With the reference at
+identity the homography is `H = K R^-1 K^-1`, so the camera rotation is `R = K^-1 H^-1 K`,
+and that is what the function returned. The problem is that this is not the convention
+`cv2.PyRotationWarper` wants: it turns an image point into a world ray with `R * K^-1`,
+which is the inverse. Handed the camera rotation, the warper laid every frame out on the
+wrong side of the reference and the whole sweep came back in reverse order.
+
+It is a silent failure. The mosaic still has zero gaps, the seams still line up and the
+railing still runs continuously, because reversing every frame consistently is
+self consistent. Only comparing against the world shows it.
+
+**How it was caught.** `cv2.Stitcher_create(cv2.Stitcher_PANORAMA)` over the same eight
+images, as an independent ground truth. It puts the dish antenna of `IMG_0540` on the
+left and the blue tower on the right. Ours had them the other way round. The capture
+direction agrees with OpenCV: the edge homography `0540 -> 0542` has `dx = -1200 px`, so
+content moves left as the sequence advances, so the camera pans right, so `0540` belongs
+at the left end.
+
+| | left to right |
+|---|---|
+| capture order | 0540 0542 0544 0547 0548 0551 0552 0555 |
+| before the fix | 0552 0551 0548 0547 0544 0542 0555 0540 |
+| after the fix | **0540 0555 0542 0544 0547 0548 0551 0552** |
+
+`0555` sits beside `0540` because they are the same viewpoint shot twice, which is right.
+
+**The fix** is one term: `K^-1 H K` instead of `K^-1 H^-1 K`. Note that orthonormalizing
+the inverse and inverting the orthonormalized matrix agree here, since the polar factor
+of `M^-1` is the transpose of the polar factor of `M`, so transposing the result works
+equally well.
+
+**Worth keeping as a habit:** a stitching result that looks plausible is not evidence.
+Both the focal defect of item 6 and this one produced mosaics that were internally
+consistent and wrong. `cv2.Stitcher` is cheap to run and settles these in seconds.
 
 ---
 
