@@ -1,30 +1,33 @@
 # =============================================================================
 # sift_vs_orb_vs_akaze
 #   modo     : evaluate (NAO produz panorama)
-#   eixo     : detection.name x matching.name, varridos pelo proprio evaluate
+#   varre    : detection.name x matching.name, pelo proprio evaluate
+#   saida    : results/sift_vs_orb_vs_akaze/metrics.csv e metrics.md
 #
-# Copia completa de configs/default.yaml. Diferente das outras copias, esta nao e
-# uma variante de um eixo: ela e o config do modo comparativo.
+# Copia completa de configs/default.yaml, sem heranca. Diferente das outras copias
+# desta pasta, esta nao e a variante de um eixo: e o config do modo comparativo.
 #
 #   python main.py evaluate --config configs/experiments/sift_vs_orb_vs_akaze.yaml
 #
-# Produz results/bench_detectors/metrics.csv e metrics.md, e para nisso. Para
-# comparar os MOSAICOS dos detectores, use det_sift, det_orb e det_akaze.
+# Ele para nas metricas. Para comparar os MOSAICOS dos tres detectores, use as
+# copias det_sift, det_orb e det_akaze com `panorama` ou `sweep`.
 # =============================================================================
 
 # Configuracao base do infinity-skyline.
 # Espelha campo a campo os schemas de src/infinity_skyline/config.py, sempre com o
 # valor default do schema. Os modelos usam extra="forbid": qualquer chave a mais
 # aqui quebra a validacao, entao nao invente campos.
-# Experimentos herdam este arquivo via `extends:` (merge recursivo, filho vence).
+# configs/experiments/ guarda COPIAS COMPLETAS deste arquivo, uma por eixo de variacao,
+# cada uma com um unico campo alterado. Nada de heranca: a copia se le sozinha.
 
 # Identidade e disciplina do run: onde escrever, com que semente, quanto falar.
 run:
-  id: bench_detectors         # id fixo: artefatos em results/bench_detectors/
+  id: null                    # null = usa o NOME DESTE ARQUIVO; artefatos em results/<id>/
+                              # entao configs/experiments/det_orb.yaml escreve em results/det_orb/
   output_root: results        # raiz de saida; run_dir() = output_root / id
   seed: 42                    # semente fixa: RANSAC amostra aleatoriamente, sem isso o numero de inliers muda a cada execucao
-  log_level: DEBUG            # eixo desta copia: log detalhado da comparacao
-  overwrite: true             # a comparacao reexecuta, entao sobrescreve
+  log_level: DEBUG            # alterado: log detalhado da comparacao
+  overwrite: false            # false protege um results/<id>/ ja existente
   cache: true                 # reaproveita .npz de keypoints e matches ja calculados, o que torna barato reexecutar so a etapa final
 
 # Uma pasta = uma cena. O pipeline roda sobre UMA cena por vez.
@@ -43,7 +46,7 @@ data:
 detection:
   name: sift
   params: {}                  # vazio = defaults do OpenCV; para comparar detectores use nfeatures IGUAL para os tres, senao a diferenca medida e so orcamento de keypoints, nao qualidade do detector
-  repetitions: 30             # eixo desta copia: mais repeticoes, desvio padrao do tempo confiavel
+  repetitions: 30             # alterado: mais repeticoes, desvio padrao do tempo confiavel
   warmup: 2                   # execucoes descartadas antes de medir, para tirar a alocacao inicial do OpenCV da conta
 
 # Como os descritores de duas imagens sao confrontados.
@@ -131,9 +134,8 @@ evaluate:
     - inlier_ratio            # n_inliers / filtered_matches, a metrica principal
     - reprojection_rmse       # erro residual da homografia, em pixels
     - success_rate            # fracao de pares que produziram homografia valida
-  # eixo desta copia: parametros por detector, aplicados sobre detection.params.
-  # nfeatures fica 5000 nos tres: sem isso a comparacao de tempo mede orcamento de
-  # keypoint em vez de qualidade de detector.
+  # alterado: parametros por detector, aplicados sobre detection.params. nfeatures fica
+  # 5000 nos tres, senao a comparacao de tempo mede orcamento de keypoint, nao detector.
   per_detector_params:
     sift:
       nfeatures: 5000
@@ -164,7 +166,7 @@ visualize:
   matches:
     enabled: true
     before_after: true        # painel bruto vs filtrado, que e o que mostra o teste de Lowe trabalhando
-    max_lines: 50             # figuras mais limpas para o artigo
+    max_lines: 50             # alterado: figuras mais limpas para o artigo
     inliers_only: false
   graph:
     enabled: true

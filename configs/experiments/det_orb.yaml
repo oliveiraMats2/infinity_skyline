@@ -2,28 +2,31 @@
 # det_orb
 #   eixo     : detection.name
 #   variante : orb
+#   saida    : results/det_orb/
 #
-# Copia completa de configs/default.yaml com APENAS este eixo alterado, para que
-# duas copias do mesmo prefixo difiram em exatamente uma coisa.
+# Copia completa de configs/default.yaml, com UMA UNICA linha alterada (marcada
+# com 'eixo desta copia'). Sem heranca: este arquivo se le sozinho.
 #
 # ORB, descritor binario de 32 bytes, muito mais rapido.
-# O bloco params foi trocado pelos parametros que o cv2.ORB_create aceita,
-# mantendo nfeatures igual, senao a comparacao de tempo fica injusta.
+# Aqui o bloco params tambem muda, porque os parametros que cv2.SIFT_create e
+# cv2.ORB_create aceitam nao se sobrepoem. nfeatures fica 5000 nos tres.
 # =============================================================================
 
 # Configuracao base do infinity-skyline.
 # Espelha campo a campo os schemas de src/infinity_skyline/config.py, sempre com o
 # valor default do schema. Os modelos usam extra="forbid": qualquer chave a mais
 # aqui quebra a validacao, entao nao invente campos.
-# Experimentos herdam este arquivo via `extends:` (merge recursivo, filho vence).
+# configs/experiments/ guarda COPIAS COMPLETAS deste arquivo, uma por eixo de variacao,
+# cada uma com um unico campo alterado. Nada de heranca: a copia se le sozinha.
 
 # Identidade e disciplina do run: onde escrever, com que semente, quanto falar.
 run:
-  id: det_orb                 # id fixo: artefatos em results/det_orb/
+  id: null                    # null = usa o NOME DESTE ARQUIVO; artefatos em results/<id>/
+                              # entao configs/experiments/det_orb.yaml escreve em results/det_orb/
   output_root: results        # raiz de saida; run_dir() = output_root / id
   seed: 42                    # semente fixa: RANSAC amostra aleatoriamente, sem isso o numero de inliers muda a cada execucao
   log_level: INFO             # DEBUG mostra cada imagem pulada, par descartado e parametro ignorado
-  overwrite: true             # a varredura reexecuta, entao sobrescreve
+  overwrite: false            # false protege um results/<id>/ ja existente
   cache: true                 # reaproveita .npz de keypoints e matches ja calculados, o que torna barato reexecutar so a etapa final
 
 # Uma pasta = uma cena. O pipeline roda sobre UMA cena por vez.
@@ -42,7 +45,7 @@ data:
 detection:
   name: orb                   # eixo desta copia
   params:
-    nfeatures: 5000           # teto IGUAL ao dos outros detectores
+    nfeatures: 5000           # teto IGUAL ao dos outros detectores, senao a comparacao de tempo mede orcamento de keypoint
     scaleFactor: 1.2          # fator entre niveis da piramide
     nlevels: 8                # niveis da piramide, afeta robustez a escala
     fastThreshold: 20

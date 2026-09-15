@@ -130,8 +130,11 @@ anywhere. The prefix names the axis:
 | `focal_` | where the focal comes from | exif, estimated |
 | `wave_` | `compose.wave_correct` | horiz, vert, none |
 
-Each sets its own `run.id` to its own name, so a variant lands in
-`results/<config name>/` and two panoramas of the same prefix can be opened side by side.
+Output is named after the config, not after the clock: with `run.id: null` the run
+directory is the config file name, so `configs/experiments/det_orb.yaml` writes to
+`results/det_orb/`. Re-running an experiment lands on top of its own output instead of
+scattering a new folder each time, and two panoramas of the same prefix can be opened side
+by side. Set `run.id` explicitly in the YAML to override the name.
 
 Run one like any other config, or hand several to `sweep`:
 
@@ -194,7 +197,8 @@ artifacts of the earlier ones.
 
 - `configs/default.yaml` is the base config; every field carries the schema default.
 - `configs/experiments/` holds full copies of it, never `extends`: one per variation axis
-  (see the sweep section), plus `sift_vs_orb_vs_akaze.yaml` for `evaluate` mode.
+  (see the sweep section), plus `sift_vs_orb_vs_akaze.yaml` for `evaluate` mode. Each copy
+  differs from the base in the one line its header names, marked `eixo desta copia`.
 - `configs/detectors.yaml` is not a config: it is a reusable set of per-detector
   parameter presets to copy into `evaluate.per_detector_params`.
 

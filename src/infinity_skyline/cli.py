@@ -72,8 +72,10 @@ def _prepare(config_path: Path) -> tuple[Config, Path]:
     config = load_config(config_path)
 
     if config.run.id is None:
-        slug = f"{config.detection.name}_{config.matching.name}"
-        config.run.id = f"{datetime.now():%Y%m%d_%H%M%S}_{slug}"
+        # The config file names the run: one config, one results directory, and
+        # re-running the same experiment lands on top of its own output instead of
+        # scattering a new timestamped folder every time.
+        config.run.id = config_path.stem
 
     run_dir = config.run_dir()
     if run_dir.exists() and not config.run.overwrite:
