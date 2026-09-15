@@ -78,12 +78,10 @@ def _prepare(config_path: Path) -> tuple[Config, Path]:
         config.run.id = config_path.stem
 
     run_dir = config.run_dir()
-    if run_dir.exists() and not config.run.overwrite:
-        if any(run_dir.iterdir()) and not config.run.cache:
-            raise typer.BadParameter(
-                f"run directory {run_dir} already exists; set run.overwrite or run.cache "
-                f"in the YAML, or pick another run.id"
-            )
+    # Re-running never blocks and never deletes: artifacts are written over one by one,
+    # so a file another stage produced and this one does not is simply left alone.
+    if run_dir.exists() and any(run_dir.iterdir()) and not config.run.overwrite:
+        logger.debug("writing over the existing artifacts in %s", run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
 
     setup_logging(config.run.log_level, run_dir / "run.log")
@@ -259,6 +257,12 @@ def panorama(config_path: ConfigOption) -> Path:
         draw_deghosting_comparison(
             result.panorama, result.naive, run_dir / "figures" / "deghosting.png"
         )
+    # Independent reference beside our own output, on the same images, so every run is
+    # comparable without a second pass. Its failure is not ours, so it only warns.
+    try:
+        save_image(out_dir / "opencv_stitcher.png", stitch_with_opencv(list(color.values())))
+    except (RuntimeError, cv2.error) as exc:
+        logger.warning("cv2.Stitcher reference not produced: %s", exc)
     return run_dir
 
 

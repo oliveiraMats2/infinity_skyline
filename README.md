@@ -84,9 +84,10 @@ python main.py sweep     configs/experiments/proj_*.yaml # one panorama per conf
 
 ### Measuring against a reference
 
-`baseline` composes the same scene with `cv2.Stitcher` and writes
-`results/<run_id>/panorama/opencv_stitcher.png` next to our own `panorama.png`. `pipeline`
-writes it too, so a full run gives both without a second pass.
+`panorama`, `pipeline` and `sweep` all write
+`results/<run_id>/panorama/opencv_stitcher.png` next to their own `panorama.png`, composed
+from the same images by `cv2.Stitcher`, so every run is comparable without a second pass.
+`baseline` produces only that file, for when the reference is all you want.
 
 It shares nothing with the pipeline under study: OpenCV runs its own features, camera
 estimation, bundle adjustment and wave correction. That is the point. Our own output
@@ -151,6 +152,10 @@ directory is the config file name, so `configs/experiments/det_orb.yaml` writes 
 `results/det_orb/`. Re-running an experiment lands on top of its own output instead of
 scattering a new folder each time, and two panoramas of the same prefix can be opened side
 by side. Set `run.id` explicitly in the YAML to override the name.
+
+Re-running never deletes anything. Artifacts are written over one at a time, so a file an
+earlier stage produced and this one does not is left where it is, and the run directory is
+never cleared. Nothing in the package removes a file.
 
 Run one like any other config, or hand several to `sweep`:
 
