@@ -78,7 +78,23 @@ python main.py evaluate  --config configs/default.yaml   # detector x matcher be
 python main.py visualize --config configs/default.yaml   # keypoint, match and graph figures
 python main.py pipeline  --config configs/default.yaml   # detect, match, geometry, graph end to end
 python main.py panorama  --config configs/default.yaml   # warp, seam, blend, final mosaic
+python main.py baseline  --config configs/default.yaml   # the same scene through cv2.Stitcher
+python main.py sweep     configs/experiments/proj_*.yaml # one panorama per config given
 ```
+
+### Measuring against a reference
+
+`baseline` composes the same scene with `cv2.Stitcher` and writes
+`results/<run_id>/panorama/opencv_stitcher.png` next to our own `panorama.png`. `pipeline`
+writes it too, so a full run gives both without a second pass.
+
+It shares nothing with the pipeline under study: OpenCV runs its own features, camera
+estimation, bundle adjustment and wave correction. That is the point. Our own output
+cannot tell us whether it is right, only whether it is self consistent, and those are
+different questions. Two defects found in this repository, the focal recovered from the
+homographies and a rotation handed to the warper in the wrong convention, both produced
+mosaics that were gapless, seamless and wrong. Comparing against this is what exposed
+them. Items 6 and 8 of `future_works.md` have the measurements.
 
 ### First run, from RAW to a mosaic
 

@@ -25,7 +25,7 @@ import typer
 from tqdm.auto import tqdm
 
 from . import __version__
-from .compose import compose_panorama
+from .compose import compose_panorama, stitch_with_opencv
 from .config import Config, load_config, dump_config
 from .detection.detect import detect_directory
 from .evaluate.benchmark import run_benchmark
@@ -297,6 +297,23 @@ def sweep(
 
 
 @app.command()
+def baseline(config_path: ConfigOption) -> Path:
+    """Compose the same scene with cv2.Stitcher, as a reference to evaluate against.
+
+    Shares nothing with our pipeline: OpenCV runs its own features, camera estimation,
+    bundle adjustment and wave correction. Compare `opencv_stitcher.png` against
+    `panorama.png` of the same run directory. A mosaic that is gapless and internally
+    consistent can still be wrong, and this is what shows it.
+    """
+    config, run_dir = _prepare(config_path)
+    color = _load_color(_scene_images(config), config)
+    out_path = run_dir / "panorama" / "opencv_stitcher.png"
+    save_image(out_path, stitch_with_opencv(list(color.values())))
+    logger.info("reference written to %s", out_path)
+    return run_dir
+
+
+@app.command()
 def pipeline(config_path: ConfigOption) -> None:
     """Full generation run: detect, match, graph, figures, progressive and panorama."""
     config, run_dir = _prepare(config_path)
@@ -329,6 +346,12 @@ def pipeline(config_path: ConfigOption) -> None:
             draw_deghosting_comparison(result.panorama, result.naive, figures / "deghosting.png")
         if result.seam_mask is not None:
             save_image(out_dir / "seam_mask.png", result.seam_mask)
+        # Independent reference beside our own output, so the two can be compared
+        # without a second run. Its failure is not ours, so it only warns.
+        try:
+            save_image(out_dir / "opencv_stitcher.png", stitch_with_opencv(list(scene.values())))
+        except (RuntimeError, cv2.error) as exc:
+            logger.warning("cv2.Stitcher reference not produced: %s", exc)
     logger.info("pipeline finished: %s", run_dir)
 
 

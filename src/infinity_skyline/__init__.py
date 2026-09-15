@@ -60,7 +60,13 @@ from .geometry import (
     rejected_images,
     reprojection_errors,
 )
-from .compose import ComposeResult, chain_homographies, compose_panorama, pick_reference
+from .compose import (
+    ComposeResult,
+    chain_homographies,
+    compose_panorama,
+    pick_reference,
+    stitch_with_opencv,
+)
 from .evaluate import (
     distortion_score,
     inlier_ratio,
@@ -133,6 +139,7 @@ __all__ = [
     "chain_homographies",
     "compose_panorama",
     "pick_reference",
+    "stitch_with_opencv",
     # evaluate
     "distortion_score",
     "inlier_ratio",

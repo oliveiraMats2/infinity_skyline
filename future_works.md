@@ -369,7 +369,9 @@ equally well.
 
 **Worth keeping as a habit:** a stitching result that looks plausible is not evidence.
 Both the focal defect of item 6 and this one produced mosaics that were internally
-consistent and wrong. `cv2.Stitcher` is cheap to run and settles these in seconds.
+consistent and wrong. This check now lives in the pipeline as `main.py baseline`, and
+`pipeline` writes `opencv_stitcher.png` beside `panorama.png` on every run. It costs
+about a second and a half on this scene.
 
 ---
 
