@@ -84,114 +84,26 @@ python main.py sweep     configs/experiments/proj_*.yaml # one panorama per conf
 
 ### Measuring against a reference
 
-`panorama`, `pipeline` and `sweep` all write
-`results/<run_id>/panorama/opencv_stitcher.png` next to their own `panorama.png`, composed
-from the same images by `cv2.Stitcher`, so every run is comparable without a second pass.
-`baseline` produces only that file, for when the reference is all you want.
+`panorama`, `pipeline` and `sweep` each make sure a `cv2.Stitcher` mosaic of the same
+frames exists, and log where it is. `baseline` produces only that, for when the reference
+is all you want.
 
-**Expect that file to be byte for byte identical across experiments, and do not read
-anything into it.** `cv2.Stitcher` does not read this config at all: it runs its own
-features, camera estimation and bundle adjustment, so it depends on the frames and their
-resolution and on nothing else. None of the nine variation axes changes the frames, so
-none of them changes the reference. It is computed once per image set into
-`results/_reference/` and copied from there, which is why a 25 config sweep stitches once
-rather than 25 times.
+There is **one** such file, under `results/_reference/`, not one per run. `cv2.Stitcher`
+does not read this config at all: it runs its own features, camera estimation and bundle
+adjustment, so it depends on the frames and their resolution and on nothing else. None of
+the nine variation axes changes the frames, so a sweep over 25 configs stitches once and
+every config compares against the same reference.
 
-The set of frames does move occasionally, and then the reference genuinely differs: an
-axis that changes the graph, such as a detector or a threshold, can drop an image from the
-main component. That is why the cache is keyed by the frame names and the working
-resolution, not by the scene alone.
+The file is keyed by the frame names rather than by the scene, because the frame set does
+move: an axis that changes the graph, such as a detector or a threshold, can drop an image
+from the main component, and then the reference is genuinely a different mosaic and gets
+computed again under its own name.
 
-It shares nothing with the pipeline under study: OpenCV runs its own features, camera
-estimation, bundle adjustment and wave correction. That is the point. Our own output
-cannot tell us whether it is right, only whether it is self consistent, and those are
-different questions. Two defects found in this repository, the focal recovered from the
-homographies and a rotation handed to the warper in the wrong convention, both produced
-mosaics that were gapless, seamless and wrong. Comparing against this is what exposed
-them. Items 6 and 8 of `future_works.md` have the measurements.
-
-### First run, from RAW to a mosaic
-
-```bash
-python main.py convert  --config configs/default.yaml --source data/high_bright
-# data.input_dir already points at data/processed/high_bright, then
-python main.py pipeline --config configs/default.yaml
-```
-
-`compose.projection` defaults to `cylindrical`, which is what every scene here needs:
-a planar mosaic projects each frame onto the tangent plane of the reference view, and
-that plane diverges as the sweep widens. In planar, `high_bright` asks for a 25615x13310
-canvas and `360_graus_images` for 45297x10649, and the `compose.canvas_max` guard stops
-the run. Switch to `planar` only for a narrow sector, where it is exact and cheaper.
-
-In a non planar projection the focal decides how far apart the frames sit on the
-cylinder, and recovering it from the homographies is ill conditioned under a small
-rotation: on this scene the estimate came out at 3471 px against the 1291 px the EXIF
-implies, and the mosaic composed with black gaps between the frames. So declare the
-camera instead, which is what the default config does:
-
-```yaml
-compose:
-  focal_mm: 18.0          # from the EXIF of the sources
-  sensor_width_mm: 22.3   # APS-C, Canon EOS Rebel T5i
-```
-
-They are converted against the working image width, so changing `data.max_dimension`
-needs no edit here. `compose.focal_px` overrides both. Leave all three null and the
-pipeline falls back to estimating, warning when the estimates disagree by more than a
-factor of two. Item 6 of `future_works.md` has the measurements.
-
-## Sweeping one axis at a time
-
-`configs/experiments/` holds one config per variant. Each is a **full copy** of
-`default.yaml`, comments included, with a single axis edited and a header saying which,
-so two copies sharing a prefix differ in exactly one line and nothing is inherited from
-anywhere. The prefix names the axis:
-
-| prefix | axis | variants |
-|---|---|---|
-| `det_` | `detection.name` | sift, orb, akaze |
-| `match_` | `matching.name` | flann, brute_force |
-| `strategy_` | `matching.strategy` | all_pairs, sequential |
-| `ransac_` | `geometry.ransac.method` | plain, magsac |
-| `graph_` | `graph.min_inliers` and `min_inlier_ratio` | loose, default, strict |
-| `proj_` | `compose.projection` | planar, cylindrical, spherical |
-| `ref_` | `compose.reference` | center, first, index |
-| `focal_` | where the focal comes from | exif, estimated |
-| `wave_` | `compose.wave_correct` | horiz, vert, none |
-
-Output is named after the config, not after the clock: with `run.id: null` the run
-directory is the config file name, so `configs/experiments/det_orb.yaml` writes to
-`results/det_orb/`. Re-running an experiment lands on top of its own output instead of
-scattering a new folder each time, and two panoramas of the same prefix can be opened side
-by side. Set `run.id` explicitly in the YAML to override the name.
-
-Re-running never deletes anything. Artifacts are written over one at a time, so a file an
-earlier stage produced and this one does not is left where it is, and the run directory is
-never cleared. Nothing in the package removes a file.
-
-Run one like any other config, or hand several to `sweep`:
-
-```bash
-python main.py panorama --config configs/experiments/proj_spherical.yaml
-python main.py sweep configs/experiments/proj_*.yaml     # one axis
-python main.py sweep configs/experiments/{det,match,strategy,ransac,graph,proj,ref,focal,wave}_*.yaml
-```
-
-The second form spells the prefixes out because `configs/experiments/` also holds
-`sift_vs_orb_vs_akaze.yaml`, which is not a panorama variant: it is the `evaluate` config,
-and it is run with `main.py evaluate` instead.
-
-`sweep` is orchestration only: every config goes through the same `panorama` command, and
-it prints the canvas size and run directory of each. A variant that fails does not stop
-the rest, which matters because two of them exist to demonstrate a limit rather than to
-succeed: `proj_planar` is expected to abort on these scenes, since a planar mosaic
-diverges as the sweep widens, and `focal_estimated` is expected to produce a mosaic with
-gaps, since recovering the focal from the homographies is ill conditioned here.
-
-Note that the first two axes are also what `evaluate` mode sweeps, but `evaluate` stops at
-`metrics.csv` and never composes a panorama. Use these configs when the mosaic itself is
-the subject.
+Why it earns its place: our own output cannot tell us whether it is right, only whether it
+is self consistent, and those are different questions. Two defects found here, the focal
+recovered from the homographies and a rotation handed to the warper in the inverse
+convention, both produced mosaics that were gapless, seamless and wrong. Comparing against
+this is what exposed them. Items 6 and 8 of `future_works.md` have the measurements.
 
 ## Two modes of operation
 

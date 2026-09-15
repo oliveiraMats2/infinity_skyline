@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import hashlib
 import random
-import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -129,38 +128,34 @@ def _load_color(images: list[Path], config: Config) -> dict[str, np.ndarray]:
     }
 
 
-def _stitcher_reference(
-    config: Config, images: Mapping[str, np.ndarray], out_path: Path
-) -> None:
-    """Write the cv2.Stitcher reference for ``images``, computing it once per image set.
+def _stitcher_reference(config: Config, images: Mapping[str, np.ndarray]) -> Path:
+    """Ensure the cv2.Stitcher reference for ``images`` exists, and return its path.
 
-    The reference depends on the frames and their resolution and on nothing else:
-    cv2.Stitcher reads none of this config, running its own features, camera estimation
-    and bundle adjustment. So two experiments that feed it the same frames get the same
-    mosaic, and a sweep over 25 configs would otherwise stitch the same thing 25 times.
-    It is cached under ``results/_reference/`` and copied in, so the file still sits
-    beside the panorama it is meant to be compared against.
+    There is one file, shared by every run, under ``results/_reference/``. cv2.Stitcher
+    reads none of this config, running its own features, camera estimation and bundle
+    adjustment, so it depends on the frames and their resolution and on nothing else.
+    None of the variation axes changes the frames, so computing it per run would stitch
+    the same mosaic again for every config and store another copy of it.
 
-    The set of frames is part of the key because it does move: an axis that changes the
-    graph, such as a detector or a threshold, can drop an image from the main component,
-    and then the reference is genuinely a different one.
+    The key is the frame names, not the scene, because the frame set does move: an axis
+    that changes the graph, such as a detector or a threshold, can drop an image from
+    the main component, and then the reference is genuinely a different mosaic.
     """
     names = sorted(images)
     digest = hashlib.sha1(
         ("|".join(names) + f"@{config.data.max_dimension}").encode()
     ).hexdigest()[:10]
-    cached = (
+    path = (
         config.run.output_root
         / "_reference"
         / f"{config.data.input_dir.name}_{len(names)}img_{digest}.png"
     )
-    if cached.exists():
-        logger.info("cv2.Stitcher reference reused from %s", cached)
-    else:
-        save_image(cached, stitch_with_opencv([images[name] for name in names]))
-        logger.info("cv2.Stitcher reference computed: %s", cached)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(cached, out_path)
+    if path.exists():
+        logger.info("cv2.Stitcher reference already at %s", path)
+        return path
+    save_image(path, stitch_with_opencv([images[name] for name in names]))
+    logger.info("cv2.Stitcher reference written to %s", path)
+    return path
 
 
 def _stage_geometry(
@@ -294,7 +289,7 @@ def panorama(config_path: ConfigOption) -> Path:
             result.panorama, result.naive, run_dir / "figures" / "deghosting.png"
         )
     try:
-        _stitcher_reference(config, color, out_dir / "opencv_stitcher.png")
+        _stitcher_reference(config, color)
     except (RuntimeError, cv2.error) as exc:  # its failure is not ours
         logger.warning("cv2.Stitcher reference not produced: %s", exc)
     return run_dir
@@ -339,15 +334,16 @@ def baseline(config_path: ConfigOption) -> Path:
     """Compose the same scene with cv2.Stitcher, as a reference to evaluate against.
 
     Shares nothing with our pipeline: OpenCV runs its own features, camera estimation,
-    bundle adjustment and wave correction. Compare `opencv_stitcher.png` against
-    `panorama.png` of the same run directory. A mosaic that is gapless and internally
+    bundle adjustment and wave correction. A mosaic that is gapless and internally
     consistent can still be wrong, and this is what shows it.
+
+    The result is one file under `results/_reference/`, not one per run, because it
+    does not depend on this config. The log line says where it landed. Compare it
+    against the `panorama.png` of whichever run you are judging.
     """
     config, run_dir = _prepare(config_path)
     color = _load_color(_scene_images(config), config)
-    out_path = run_dir / "panorama" / "opencv_stitcher.png"
-    _stitcher_reference(config, color, out_path)
-    logger.info("reference written to %s", out_path)
+    _stitcher_reference(config, color)
     return run_dir
 
 
@@ -385,7 +381,7 @@ def pipeline(config_path: ConfigOption) -> None:
         if result.seam_mask is not None:
             save_image(out_dir / "seam_mask.png", result.seam_mask)
         try:
-            _stitcher_reference(config, scene, out_dir / "opencv_stitcher.png")
+            _stitcher_reference(config, scene)
         except (RuntimeError, cv2.error) as exc:  # its failure is not ours
             logger.warning("cv2.Stitcher reference not produced: %s", exc)
     logger.info("pipeline finished: %s", run_dir)
