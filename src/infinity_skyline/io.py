@@ -29,12 +29,17 @@ KEYPOINT_COLUMNS: tuple[str, ...] = ("x", "y", "size", "angle", "response", "oct
 # --------------------------------------------------------------------------- #
 # images
 # --------------------------------------------------------------------------- #
-def list_images(directory: Path, extensions: Sequence[str]) -> list[Path]:
-    """Sorted, non-recursive listing: one directory is one scene."""
+def list_images(
+    directory: Path, extensions: Sequence[str], *, recursive: bool = False
+) -> list[Path]:
+    """Sorted listing, non-recursive by default: one directory is one scene.
+
+    ``recursive=True`` walks subdirectories as well, for the callers that mirror a
+    whole tree (the PNG converter) instead of reading a single flat scene.
+    """
     wanted = {e.lower() for e in extensions}
-    return sorted(
-        p for p in directory.iterdir() if p.is_file() and p.suffix.lower() in wanted
-    )
+    entries = directory.rglob("*") if recursive else directory.iterdir()
+    return sorted(p for p in entries if p.is_file() and p.suffix.lower() in wanted)
 
 
 def _read_raw(path: Path) -> np.ndarray:

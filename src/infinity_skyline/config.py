@@ -172,6 +172,16 @@ class FiguresConfig(_Base):
     dpi: int = Field(default=150, ge=1)
     format: str = "png"
 
+    def path(self, run_dir: Path, module: str, name: str) -> Path:
+        """The one place that decides where a figure goes and what it is called.
+
+        ``results/<run_id>/figures/<module>/<name>.<format>``, one subdirectory per
+        module of ``visualize/``. The parent is created here so no caller has to.
+        """
+        directory = run_dir / "figures" / module
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory / f"{name}.{self.format}"
+
 
 class VisualizeConfig(_Base):
     keypoints: VisualizeKeypoints = Field(default_factory=VisualizeKeypoints)

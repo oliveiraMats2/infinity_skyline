@@ -18,9 +18,10 @@ import random
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Mapping
+from typing import Annotated, Mapping, Sequence
 
 import cv2
+import networkx as nx
 import numpy as np
 import typer
 from tqdm.auto import tqdm
@@ -36,10 +37,10 @@ from .io import KeypointRecord, MatchRecord, list_images, load_image, save_image
 from .logging_setup import get_logger, setup_logging
 from .matching.match import match_all
 from .tools.convert_to_png import convert_directory
-from .visualize.graph import draw_graph
-from .visualize.keypoints import draw_keypoints
-from .visualize.matches import draw_before_after
-from .visualize.panorama import draw_deghosting_comparison, draw_progressive
+from .visualize.graph import save_graph_figures
+from .visualize.keypoints import save_keypoint_figures
+from .visualize.matches import save_match_figures
+from .visualize.panorama import draw_progressive, save_panorama_figures
 from .visualize.report import plot_benchmark
 
 app = typer.Typer(
@@ -158,6 +159,32 @@ def _stitcher_reference(config: Config, images: Mapping[str, np.ndarray]) -> Pat
     return path
 
 
+def _write_figures(
+    config: Config,
+    run_dir: Path,
+    color: Mapping[str, np.ndarray],
+    keypoints: Mapping[str, KeypointRecord],
+    matches: Mapping[tuple[str, str], MatchRecord],
+    graph: nx.Graph,
+    rejected: Sequence[str],
+) -> list[Path]:
+    """Every partial figure of a generation run, in one place instead of four.
+
+    Each module of ``visualize/`` writes into its own subdirectory and picks its own
+    file names through ``config.visualize.figures.path``, so no command here decides
+    where a figure lands or what extension it gets.
+    """
+    written: list[Path] = []
+    if config.visualize.keypoints.enabled:
+        written += save_keypoint_figures(color, keypoints, config.visualize, run_dir)
+    if config.visualize.matches.enabled:
+        written += save_match_figures(color, keypoints, matches, config.visualize, run_dir)
+    if config.visualize.graph.enabled:
+        written += save_graph_figures(graph, rejected, config.visualize, run_dir)
+    logger.info("%d figures written under %s", len(written), run_dir / "figures")
+    return written
+
+
 def _stage_geometry(
     config: Config, run_dir: Path
 ) -> tuple[
@@ -185,13 +212,27 @@ def convert(
     dest: Annotated[
         Path | None, typer.Option("--dest", file_okay=False, help="PNG output folder.")
     ] = None,
+    max_dimension: Annotated[
+        int | None,
+        typer.Option("--max-dimension", help="Longest side in px; overrides data.max_dimension."),
+    ] = None,
+    overwrite: Annotated[
+        bool, typer.Option("--overwrite", help="Rewrite PNGs that already exist.")
+    ] = False,
 ) -> None:
-    """Convert a scene folder (Canon RAW, JPEG, TIFF) to lossless PNG."""
+    """Convert any image folder (Canon RAW, JPEG, TIFF, PNG) to lossless PNG.
+
+    Recurses into subdirectories and mirrors the tree under ``--dest``. The two
+    flags exist so converting a one off folder never means editing the YAML.
+    """
     config = load_config(config_path)
     setup_logging(config.run.log_level)
     destination = dest if dest is not None else Path("data/processed") / source.name
     written = convert_directory(
-        source, destination, max_dimension=config.data.max_dimension, overwrite=config.run.overwrite
+        source,
+        destination,
+        max_dimension=config.data.max_dimension if max_dimension is None else max_dimension,
+        overwrite=overwrite or config.run.overwrite,
     )
     logger.info("wrote %d PNG files to %s", len(written), destination)
 
@@ -219,38 +260,16 @@ def visualize(config_path: ConfigOption) -> None:
     """Render keypoint, match and connectivity graph figures."""
     config, run_dir = _prepare(config_path)
     images, keypoints, matches = _stage_geometry(config, run_dir)
-    figures = run_dir / "figures"
-    figures.mkdir(parents=True, exist_ok=True)
-    color = _load_color(images, config)
-
-    if config.visualize.keypoints.enabled:
-        for name, record in tqdm(keypoints.items(), desc="fig:keypoints", unit="img"):
-            save_image(
-                figures / f"keypoints_{name}.{config.visualize.figures.format}",
-                draw_keypoints(color[name], record, config.visualize),
-            )
-
-    if config.visualize.matches.enabled:
-        for (a, b), record in tqdm(matches.items(), desc="fig:matches", unit="pair"):
-            if record.n_filtered == 0:
-                continue
-            raw, filtered = draw_before_after(
-                color[a], keypoints[a], color[b], keypoints[b], record, config.visualize
-            )
-            stem = f"matches_{a}__{b}"
-            save_image(figures / f"{stem}_raw.{config.visualize.figures.format}", raw)
-            save_image(figures / f"{stem}_filtered.{config.visualize.figures.format}", filtered)
-
-    if config.visualize.graph.enabled:
-        names = sorted(keypoints)
-        graph = build_graph(matches, names, config.graph)
-        draw_graph(
-            graph,
-            rejected_images(graph, config.graph),
-            config.visualize,
-            figures / f"graph.{config.visualize.figures.format}",
-        )
-    logger.info("figures written to %s", figures)
+    graph = build_graph(matches, sorted(keypoints), config.graph)
+    _write_figures(
+        config,
+        run_dir,
+        _load_color(images, config),
+        keypoints,
+        matches,
+        graph,
+        rejected_images(graph, config.graph),
+    )
 
 
 @app.command()
@@ -285,8 +304,8 @@ def panorama(config_path: ConfigOption) -> Path:
     logger.info("panorama %dx%d written to %s", *result.panorama.shape[1::-1], out_dir)
 
     if result.naive is not None:
-        draw_deghosting_comparison(
-            result.panorama, result.naive, run_dir / "figures" / "deghosting.png"
+        save_panorama_figures(
+            result.panorama, result.naive, config.visualize.figures, run_dir
         )
     try:
         _stitcher_reference(config, color)
@@ -302,9 +321,13 @@ def sweep(
         typer.Argument(exists=True, dir_okay=False, help="Config files, one panorama each."),
     ],
 ) -> None:
-    """Compose one panorama per config given, then report what each one produced.
+    """Run every config given end to end, then report what each one produced.
 
-    Orchestration only: every config goes through the same `panorama` command above.
+    Orchestration only: every config goes through the same `pipeline` command below,
+    so each run gets its partial figures (keypoints, matches, graph, panorama) as well
+    as the mosaic. Use `panorama` directly when the mosaic is all you want: it is the
+    same composition without the figures, and much faster over many configs.
+
     A variant that fails does not stop the rest, because some of them exist to
     demonstrate a limit rather than to succeed.
     """
@@ -312,7 +335,7 @@ def sweep(
     for config_path in tqdm(config_paths, desc="sweep", unit="config"):
         name = config_path.stem
         try:
-            run_dir = panorama(config_path)
+            run_dir = pipeline(config_path)
         except Exception as exc:  # a sweep must survive its own failures
             rows.append((name, "FALHOU", f"{type(exc).__name__}: {exc}"))
             logger.warning("%s failed: %s", name, exc)
@@ -348,7 +371,7 @@ def baseline(config_path: ConfigOption) -> Path:
 
 
 @app.command()
-def pipeline(config_path: ConfigOption) -> None:
+def pipeline(config_path: ConfigOption) -> Path:
     """Full generation run: detect, match, graph, figures, progressive and panorama."""
     config, run_dir = _prepare(config_path)
     images, keypoints, matches = _stage_geometry(config, run_dir)
@@ -359,25 +382,20 @@ def pipeline(config_path: ConfigOption) -> None:
     order = infer_order(graph, largest_component(graph))
     logger.info("order: %s | rejected: %s", " -> ".join(order), rejected or "none")
 
-    figures = run_dir / "figures"
-    figures.mkdir(parents=True, exist_ok=True)
     color = _load_color(images, config)
-
-    if config.visualize.keypoints.enabled:
-        for name, record in tqdm(keypoints.items(), desc="fig:keypoints", unit="img"):
-            save_image(figures / f"keypoints_{name}.png", draw_keypoints(color[name], record, config.visualize))
-    if config.visualize.graph.enabled:
-        draw_graph(graph, rejected, config.visualize, figures / "graph.png")
+    _write_figures(config, run_dir, color, keypoints, matches, graph, rejected)
 
     if len(order) >= 2:
         scene = {name: color[name] for name in order}
-        draw_progressive(scene, order, graph, config.compose, figures / "progressive")
+        draw_progressive(scene, order, graph, config.compose, config.visualize.figures, run_dir)
         result = compose_panorama(scene, order, graph, config.compose)
         out_dir = run_dir / "panorama"
         save_image(out_dir / "panorama.png", result.panorama)
         if result.naive is not None:
             save_image(out_dir / "naive.png", result.naive)
-            draw_deghosting_comparison(result.panorama, result.naive, figures / "deghosting.png")
+            save_panorama_figures(
+                result.panorama, result.naive, config.visualize.figures, run_dir
+            )
         if result.seam_mask is not None:
             save_image(out_dir / "seam_mask.png", result.seam_mask)
         try:
@@ -385,6 +403,7 @@ def pipeline(config_path: ConfigOption) -> None:
         except (RuntimeError, cv2.error) as exc:  # its failure is not ours
             logger.warning("cv2.Stitcher reference not produced: %s", exc)
     logger.info("pipeline finished: %s", run_dir)
+    return run_dir
 
 
 # --------------------------------------------------------------------------- #
@@ -397,7 +416,7 @@ def evaluate(config_path: ConfigOption) -> None:
     frame = run_benchmark(config)
     logger.info("%d benchmark rows", len(frame))
     if config.evaluate.export.plots:
-        paths = plot_benchmark(frame, run_dir / "figures", config.visualize.figures.dpi)
+        paths = plot_benchmark(frame, config.visualize.figures, run_dir)
         logger.info("%d benchmark plots written", len(paths))
 
 

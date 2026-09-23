@@ -78,12 +78,15 @@ from .evaluate import (
 )
 from .visualize import (
     draw_before_after,
-    draw_deghosting_comparison,
     draw_graph,
     draw_keypoints,
     draw_matches,
     draw_progressive,
     plot_benchmark,
+    save_graph_figures,
+    save_keypoint_figures,
+    save_match_figures,
+    save_panorama_figures,
 )
 from .tools import convert_directory
 
@@ -150,12 +153,15 @@ __all__ = [
     "summarize",
     # visualize
     "draw_before_after",
-    "draw_deghosting_comparison",
     "draw_graph",
     "draw_keypoints",
     "draw_matches",
     "draw_progressive",
     "plot_benchmark",
+    "save_graph_figures",
+    "save_keypoint_figures",
+    "save_match_figures",
+    "save_panorama_figures",
     # tools
     "convert_directory",
 ]

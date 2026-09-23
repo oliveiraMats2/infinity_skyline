@@ -16,6 +16,7 @@ import networkx as nx  # noqa: E402
 import numpy as np  # noqa: E402
 
 from ..config import VisualizeConfig  # noqa: E402
+from ..geometry.graph import connectivity_matrix  # noqa: E402
 from ..logging_setup import get_logger  # noqa: E402
 
 logger = get_logger(__name__)
@@ -142,3 +143,71 @@ def draw_graph(
     figure.savefig(out_path, dpi=config.figures.dpi)
     plt.close(figure)  # closing matters: this runs inside loops
     logger.info("graph figure saved to %s (%d rejected)", out_path, len(rejected_set))
+
+
+def save_graph_figures(
+    graph: nx.Graph,
+    rejected: Sequence[str],
+    config: VisualizeConfig,
+    run_dir: Path,
+) -> list[Path]:
+    """Every graph figure of one run, returned in the order they were written.
+
+    The node-edge drawing is the readable one only while the scene is small; past
+    roughly 20 images it degenerates into a hairball, so the same information is
+    also written as a connectivity matrix, which stays legible at any size.
+    """
+    rejected_set = set(rejected)
+    names = sorted(graph.nodes)
+    # an asterisk is the whole legend: the rejected images are what the reader looks for
+    labels = [f"{_short(str(n))}*" if n in rejected_set else _short(str(n)) for n in names]
+
+    graph_path = config.figures.path(run_dir, "graph", "graph")
+    draw_graph(graph, rejected, config, graph_path)
+    paths = [graph_path]
+
+    matrix = connectivity_matrix(graph, names)
+    figure, axes = plt.subplots(figsize=(9, 8))
+    heat = axes.imshow(matrix, cmap="viridis")
+    figure.colorbar(heat, ax=axes, label="inliers")
+    axes.set_xticks(range(len(names)))
+    axes.set_xticklabels(labels, rotation=90, fontsize=7)
+    axes.set_yticks(range(len(names)))
+    axes.set_yticklabels(labels, fontsize=7)
+    if len(names) <= 20:
+        # the per cell number only fits while the matrix is small; above that the
+        # colour alone carries the value and the text would overlap into noise
+        half = matrix.max() / 2.0
+        for i in range(len(names)):
+            for j in range(len(names)):
+                axes.text(
+                    j, i, str(matrix[i, j]), ha="center", va="center", fontsize=6,
+                    color="white" if matrix[i, j] < half else "black",
+                )
+    axes.set_title("Matriz de conectividade (* = rejeitada)")
+    figure.tight_layout()
+    matrix_path = config.figures.path(run_dir, "graph", "connectivity")
+    figure.savefig(matrix_path, dpi=config.figures.dpi)
+    plt.close(figure)
+    paths.append(matrix_path)
+
+    weights = [float(data.get("weight", 0.0)) for _, _, data in graph.edges(data=True)]
+    if not weights:
+        # a graph of isolated nodes is a legitimate outcome (every pair rejected),
+        # so the missing histogram is a warning and not a failure of the run
+        logger.warning("graph has no edges, skipping the edge weight histogram")
+        return paths
+
+    figure, axes = plt.subplots(figsize=(8, 5))
+    axes.hist(weights, bins=min(20, len(set(weights))), color=ACCEPTED_COLOR, edgecolor="white")
+    axes.set_xlabel("Inliers por aresta")
+    axes.set_ylabel("Numero de arestas")
+    axes.set_title(f"Distribuicao do peso das arestas ({len(weights)} arestas)")
+    figure.tight_layout()
+    weights_path = config.figures.path(run_dir, "graph", "edge_weights")
+    figure.savefig(weights_path, dpi=config.figures.dpi)
+    plt.close(figure)
+    paths.append(weights_path)
+
+    logger.info("saved %d graph figures to %s", len(paths), graph_path.parent)
+    return paths

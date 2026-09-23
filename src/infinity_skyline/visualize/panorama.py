@@ -6,14 +6,20 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 import cv2
-import networkx as nx
-import numpy as np
-from tqdm.auto import tqdm
+import matplotlib
 
-from ..compose import compose_panorama
-from ..config import ComposeConfig
-from ..io import save_image
-from ..logging_setup import get_logger
+matplotlib.use("Agg")  # headless backend, must be set before pyplot is imported
+
+import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.patches import Rectangle  # noqa: E402
+import networkx as nx  # noqa: E402
+import numpy as np  # noqa: E402
+from tqdm.auto import tqdm  # noqa: E402
+
+from ..compose import compose_panorama  # noqa: E402
+from ..config import ComposeConfig, FiguresConfig  # noqa: E402
+from ..io import save_image  # noqa: E402
+from ..logging_setup import get_logger  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -28,19 +34,19 @@ def draw_progressive(
     order: Sequence[str],
     graph: nx.Graph,
     config: ComposeConfig,
-    out_dir: Path,
+    figures: FiguresConfig,
+    run_dir: Path,
 ) -> list[Path]:
-    """Compose the first ``k`` images for ``k = 2..len(order)``, one PNG each."""
-    out_dir.mkdir(parents=True, exist_ok=True)
+    """Compose the first ``k`` images for ``k = 2..len(order)``, one frame each."""
     paths: list[Path] = []
     for k in tqdm(
         range(2, len(order) + 1), desc="progressive panorama", unit="image"
     ):
         result = compose_panorama(images, list(order[:k]), graph, config)
-        path = out_dir / f"progressive_{k:02d}.png"
+        path = figures.path(run_dir, "panorama", f"progressive_{k:02d}")
         save_image(path, result.panorama)
         paths.append(path)
-    logger.info("saved %d progressive frames to %s", len(paths), out_dir)
+    logger.info("saved %d progressive frames to %s", len(paths), run_dir)
     return paths
 
 
@@ -48,11 +54,12 @@ def _to_gray(image: np.ndarray) -> np.ndarray:
     return image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
 
-def _worst_region(
-    panorama: np.ndarray, naive: np.ndarray, window: int
-) -> tuple[int, int, int, int]:
-    """Window with the largest mean absolute difference: that is where ghosts live."""
-    difference = cv2.absdiff(_to_gray(panorama), _to_gray(naive)).astype(np.float32)
+def _worst_region(difference: np.ndarray, window: int) -> tuple[int, int, int, int]:
+    """Window with the largest mean absolute difference: that is where ghosts live.
+
+    Takes the difference map rather than the two images because the caller plots the
+    very same map, and one ``absdiff`` over a panorama is not worth paying twice.
+    """
     averaged = cv2.blur(difference, (window, window))
     _, _, _, (cx, cy) = cv2.minMaxLoc(averaged)
     height, width = difference.shape[:2]
@@ -76,21 +83,29 @@ def _labelled_crop(image: np.ndarray, box: tuple[int, int, int, int], text: str,
     return patch
 
 
-def draw_deghosting_comparison(
+def save_panorama_figures(
     panorama: np.ndarray,
     naive: np.ndarray,
-    out_path: Path,
+    figures: FiguresConfig,
+    run_dir: Path,
     crop: tuple[int, int, int, int] | None = None,
-) -> None:
-    """Same region of the naive average and of the seam blended result, magnified."""
+) -> list[Path]:
+    """The deghosting close up plus the difference map that justifies its crop.
+
+    The two read together: the map says where the naive average and the blended
+    result disagree over the whole panorama, the rectangle says which of those
+    disagreements the magnified comparison is showing.
+    """
     height = min(panorama.shape[0], naive.shape[0])
     width = min(panorama.shape[1], naive.shape[1])
     panorama = panorama[:height, :width]
     naive = naive[:height, :width]
+    # computed once and used twice: to pick the crop, and as the plotted map
+    difference = cv2.absdiff(_to_gray(panorama), _to_gray(naive)).astype(np.float32)
 
     if crop is None:
         window = int(np.clip(min(height, width) // 8, 32, min(height, width)))
-        crop = _worst_region(panorama, naive, window)
+        crop = _worst_region(difference, window)
         logger.info("deghosting crop chosen automatically at %s", crop)
     x, y, w, h = crop
     x, y = int(np.clip(x, 0, width - 1)), int(np.clip(y, 0, height - 1))
@@ -101,5 +116,18 @@ def draw_deghosting_comparison(
     left = _labelled_crop(naive, box, "sem deghosting", zoom)
     right = _labelled_crop(panorama, box, "com deghosting", zoom)
     separator = np.full((left.shape[0], _SEPARATOR_WIDTH, 3), 255, dtype=left.dtype)
-    save_image(out_path, np.hstack([left, separator, right]))
-    logger.info("deghosting comparison saved to %s (zoom %dx)", out_path, zoom)
+    comparison_path = figures.path(run_dir, "panorama", "deghosting")
+    save_image(comparison_path, np.hstack([left, separator, right]))
+    logger.info("deghosting comparison saved to %s (zoom %dx)", comparison_path, zoom)
+
+    figure, axes = plt.subplots(figsize=(11, 6))
+    heat = axes.imshow(difference, cmap="inferno")
+    figure.colorbar(heat, ax=axes, label="|panorama - media ingenua|")
+    axes.add_patch(Rectangle((x, y), w, h, fill=False, edgecolor="#39ff14", linewidth=2))
+    axes.set_title("Diferenca absoluta entre o panorama e a media ingenua")
+    axes.set_axis_off()
+    figure.tight_layout()
+    difference_path = figures.path(run_dir, "panorama", "difference")
+    figure.savefig(difference_path, dpi=figures.dpi)
+    plt.close(figure)
+    return [comparison_path, difference_path]
