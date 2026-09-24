@@ -106,7 +106,8 @@ size. The pipeline still reads at `data.max_dimension` on top of that.
 
 The resolved config with provenance, the run log, `keypoints/` and `matches/` as `.npz`,
 and `panorama/`: `panorama.png` (`compose.blend.method`), one `panorama_<method>.png` per
-method in `compose.blend.compare`, `naive.png` and `seam_mask.png`. Figures go under
+method in `compose.blend.compare`, `naive.png`, `seam_mask.png` and, for cylindrical or
+spherical runs, `panorama_equirectangular.jpg` (2:1 with GPano XMP, opens in 3D in a 360 viewer). Figures go under
 `figures/`, one subdirectory per module of `visualize/`:
 
 | Subdirectory | Contents |

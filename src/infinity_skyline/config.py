@@ -163,6 +163,9 @@ class ComposeConfig(_Base):
     blend: BlendConfig = Field(default_factory=BlendConfig)
     exposure: Literal["none", "gain", "gain_blocks"] = "gain_blocks"
     save_naive: bool = True
+    # Also save panorama_equirectangular.jpg: the mosaic on a 2:1 canvas with GPano
+    # XMP, which 360 viewers open in 3D. Needs a cylindrical or spherical projection.
+    save_equirectangular: bool = True
 
 
 class ExportConfig(_Base):

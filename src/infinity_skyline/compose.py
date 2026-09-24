@@ -86,6 +86,11 @@ class ComposeResult:
     # One panorama per ``blend.compare`` method, same tiles and seams, and its time.
     blends: dict[str, np.ndarray] = field(default_factory=dict)
     blend_times_ms: dict[str, float] = field(default_factory=dict)
+    # Where the canvas sits on the warper surface, for to_equirectangular. None when
+    # the mosaic is planar, which has no angular coordinates to place.
+    projection: str = "planar"
+    focal: float | None = None
+    canvas_origin: tuple[int, int] | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -570,7 +575,7 @@ def _warp_rotation(
     canvas_max: int,
     max_megapixels: float,
     wave_correct: str,
-) -> tuple[list[Tile], int, int]:
+) -> tuple[list[Tile], int, int, tuple[int, int]]:
     """Warp onto a cylinder or a sphere with ``cv2.PyRotationWarper``."""
     warper = _cv_attr("PyRotationWarper")(PROJECTION_NAMES[projection], focal)
     intrinsics_all: list[np.ndarray] = []
@@ -591,6 +596,7 @@ def _warp_rotation(
 
     shifted, canvas_w, canvas_h = _normalize_rois(rois)
     _check_canvas(names, shifted, canvas_w, canvas_h, canvas_max, max_megapixels)
+    origin = (min(x for x, _, _, _ in rois), min(y for _, y, _, _ in rois))
 
     tiles: list[Tile] = []
     for name, intrinsics, rotation, (x, y, _, _) in tqdm(
@@ -610,7 +616,7 @@ def _warp_rotation(
             cv2.BORDER_CONSTANT,
         )
         tiles.append((np.asarray(warped), np.asarray(mask), (x, y)))
-    return tiles, canvas_w, canvas_h
+    return tiles, canvas_w, canvas_h, origin
 
 
 # --------------------------------------------------------------------------- #
@@ -823,9 +829,10 @@ def compose_panorama(
 
     tiles: list[Tile] | None = None
     canvas_w = canvas_h = 0
+    origin: tuple[int, int] | None = None
     if config.projection != "planar" and focal is not None:
         try:
-            tiles, canvas_w, canvas_h = _warp_rotation(
+            tiles, canvas_w, canvas_h, origin = _warp_rotation(
                 sources, names, homographies, config.projection, focal,
                 config.canvas_max, config.canvas_max_megapixels, config.wave_correct,
             )
@@ -838,7 +845,7 @@ def compose_panorama(
                 config.projection,
                 exc,
             )
-            tiles = None
+            tiles, origin = None, None
     if tiles is None:
         tiles, canvas_w, canvas_h = _warp_planar(
             sources, names, homographies, config.canvas_max, config.canvas_max_megapixels
@@ -872,4 +879,41 @@ def compose_panorama(
         global_homographies={name: homographies[name] for name in names},
         blends={method: blends[method] for method in config.blend.compare},
         blend_times_ms={method: blend_times_ms[method] for method in config.blend.compare},
+        projection=config.projection if origin is not None else "planar",
+        focal=focal if origin is not None else None,
+        canvas_origin=origin,
+    )
+
+
+def to_equirectangular(result: ComposeResult) -> np.ndarray | None:
+    """The mosaic placed on a full 2:1 equirectangular canvas, black where unseen.
+
+    The rotation warper lays pixels out as ``u = f * azimuth``, and ``v = f * polar``
+    on a sphere or ``v = f * tan(elevation)`` on a cylinder, with the reference frame
+    at azimuth zero. So the equirectangular canvas, ``2 pi f`` by ``pi f``, is a remap:
+    exact placement for spherical, a vertical resampling for cylindrical. A 180 degree
+    sweep fills half of it and the rest stays black, which is what 360 viewers expect.
+    Returns None for a planar mosaic, which has no angles to place.
+    """
+    if result.canvas_origin is None or result.focal is None:
+        return None
+    height = int(round(np.pi * result.focal))
+    width = 2 * height  # exactly 2:1, which viewers check before wrapping a sphere
+    focal = width / (2.0 * np.pi)
+    azimuth = (np.arange(width, dtype=np.float32) + 0.5) / focal - np.pi
+    polar = (np.arange(height, dtype=np.float32) + 0.5) / focal  # 0 at the zenith
+    if result.projection == "spherical":
+        v = focal * polar
+    else:
+        # Rows near the poles have no cylinder under them: send them off the canvas.
+        elevation = np.clip(polar - np.pi / 2.0, -1.55, 1.55)
+        v = np.where(np.abs(polar - np.pi / 2.0) < 1.55, focal * np.tan(elevation), -1e9)
+    map_x = np.broadcast_to(focal * azimuth - result.canvas_origin[0], (height, width))
+    map_y = np.broadcast_to((v - result.canvas_origin[1])[:, None], (height, width))
+    return cv2.remap(
+        result.panorama,
+        np.ascontiguousarray(map_x, dtype=np.float32),
+        np.ascontiguousarray(map_y, dtype=np.float32),
+        cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
     )

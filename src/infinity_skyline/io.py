@@ -124,6 +124,29 @@ def save_image(path: Path, image: np.ndarray) -> None:
         raise OSError(f"cv2.imwrite failed for {path}")
 
 
+def save_equirectangular_jpeg(path: Path, image: np.ndarray, quality: int = 95) -> None:
+    """Write a 2:1 BGR panorama as JPEG with the GPano XMP that tells 360 viewers
+    (Spherical Viewer, Google Photos, Facebook) to open it as a sphere."""
+    from PIL import Image  # Pillow arrives with matplotlib
+
+    height, width = image.shape[:2]
+    xmp = (
+        '<x:xmpmeta xmlns:x="adobe:ns:meta/">'
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        '<rdf:Description rdf:about="" xmlns:GPano="http://ns.google.com/photos/1.0/panorama/"'
+        ' GPano:ProjectionType="equirectangular" GPano:UsePanoramaViewer="True"'
+        f' GPano:FullPanoWidthPixels="{width}" GPano:FullPanoHeightPixels="{height}"'
+        f' GPano:CroppedAreaImageWidthPixels="{width}"'
+        f' GPano:CroppedAreaImageHeightPixels="{height}"'
+        ' GPano:CroppedAreaLeftPixels="0" GPano:CroppedAreaTopPixels="0"/>'
+        "</rdf:RDF></x:xmpmeta>"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).save(
+        path, "JPEG", quality=quality, xmp=xmp.encode()
+    )
+
+
 # --------------------------------------------------------------------------- #
 # keypoints
 # --------------------------------------------------------------------------- #

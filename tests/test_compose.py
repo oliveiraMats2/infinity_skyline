@@ -196,3 +196,21 @@ def test_canvas_past_the_megapixel_budget_fails_instead_of_running_out_of_memory
     with pytest.raises(ValueError, match="canvas_max_megapixels"):
         _check_canvas(["a"], [(0, 0, 13021, 6774)], 13021, 6774, 20000, 40.0)
     _check_canvas(["a"], [(0, 0, 3041, 1272)], 3041, 1272, 20000, 40.0)
+
+
+def test_equirectangular_is_2_to_1_and_puts_the_reference_at_the_center() -> None:
+    from infinity_skyline.compose import ComposeResult, to_equirectangular
+
+    focal = 100.0
+    # A 20x20 white canvas whose center sits at azimuth 0 and on the horizon.
+    origin = (-10, int(round(focal * np.pi / 2)) - 10)
+    result = ComposeResult(
+        panorama=np.full((20, 20, 3), 255, np.uint8),
+        projection="spherical", focal=focal, canvas_origin=origin,
+    )
+    image = to_equirectangular(result)
+    height, width = image.shape[:2]
+    assert width == 2 * height
+    assert image[height // 2, width // 2].min() == 255  # the mosaic, at the center
+    assert image[0, 0].max() == 0  # black where nothing was seen
+    assert to_equirectangular(ComposeResult(panorama=result.panorama)) is None  # planar

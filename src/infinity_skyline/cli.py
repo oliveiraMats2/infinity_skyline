@@ -48,7 +48,7 @@ import yaml
 from tqdm.auto import tqdm
 
 from . import __version__
-from .compose import ComposeResult, compose_panorama
+from .compose import ComposeResult, compose_panorama, to_equirectangular
 from .config import Config, load_config, dump_config
 from .detection.detect import detect_directory
 from .evaluate.benchmark import run_benchmark
@@ -66,6 +66,7 @@ from .io import (
     MatchRecord,
     list_images,
     load_image,
+    save_equirectangular_jpeg,
     save_image,
     save_keypoints,
 )
@@ -288,6 +289,13 @@ def _save_panorama(config: Config, run_dir: Path, result: ComposeResult) -> None
     if result.seam_mask is not None:
         save_image(out_dir / "seam_mask.png", result.seam_mask)
     logger.info("panorama %dx%d written to %s", *result.panorama.shape[1::-1], out_dir)
+    if config.compose.save_equirectangular:
+        equirectangular = to_equirectangular(result)
+        if equirectangular is None:
+            logger.info("no equirectangular panorama: the mosaic is planar")
+        else:
+            save_equirectangular_jpeg(out_dir / "panorama_equirectangular.jpg", equirectangular)
+            logger.info("equirectangular %dx%d written for 360 viewers", *equirectangular.shape[1::-1])
 
     techniques = dict(result.blends)
     if result.naive is not None:
