@@ -113,7 +113,7 @@ compose:
     compare: [feather, linear, multiband]   # one panorama_<method>.png and one <method>_blending_metrics.csv per technique, all on the same seam
   exposure: gain_blocks       # block based exposure compensation: the low_bright and high_bright folders prove the same view arrives with different brightness, and a single global gain corrects neither vignetting nor variation within the frame
   save_naive: true            # also saves the plain average without a seam, which is the deghosting comparison of Stage 6.4
-  save_equirectangular: true  # also writes panorama/panorama_equirectangular.jpg: the mosaic on a 2:1 canvas (black where unseen) with GPano XMP, opens in 3D in 360 viewers such as Spherical Viewer; cylindrical or spherical only
+  save_equirectangular: false # 360 degree sweeps only: writes panorama/panorama_equirectangular.jpg (2:1, GPano XMP) for 3D viewers such as Spherical Viewer; turned on by configs/sweep_360_plasma_images.yaml and scene_360.yaml
 
 # Evaluate mode: sweeps the detectors x matchers matrix and produces metrics.csv.
 evaluate:

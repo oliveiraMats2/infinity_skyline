@@ -164,8 +164,9 @@ class ComposeConfig(_Base):
     exposure: Literal["none", "gain", "gain_blocks"] = "gain_blocks"
     save_naive: bool = True
     # Also save panorama_equirectangular.jpg: the mosaic on a 2:1 canvas with GPano
-    # XMP, which 360 viewers open in 3D. Needs a cylindrical or spherical projection.
-    save_equirectangular: bool = True
+    # XMP, which 360 viewers open in 3D. Meant for 360 degree sweeps, so it is off
+    # here and turned on by the 360 sweep; needs a cylindrical or spherical projection.
+    save_equirectangular: bool = False
 
 
 class ExportConfig(_Base):

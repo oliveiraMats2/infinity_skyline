@@ -22,6 +22,7 @@ override:
     input_dir: data/processed/360_plasma_images   # output of convert, not the original HEICs
   compose:
     bundle_adjust: true
+    save_equirectangular: true   # 360 only: panorama_equirectangular.jpg (2:1, GPano XMP) opens in 3D in Spherical Viewer
   run:
     output_root: /Users/oliveira_mats/360_plasma_images/results
     artifacts_root: /Users/oliveira_mats/360_plasma_images/artifacts
