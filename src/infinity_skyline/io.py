@@ -8,6 +8,7 @@ stored as a plain ``(N, 7)`` float32 array and rebuilt on load. Everything lands
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -171,9 +172,17 @@ class KeypointRecord:
         return array_to_keypoints(self.keypoints)
 
 
-def save_keypoints(path: Path, record: KeypointRecord) -> None:
+def _savez_atomic(path: Path, **arrays: np.ndarray) -> None:
+    """Write to a sibling file, then rename: a run killed mid write never leaves a
+    truncated cache entry that a resumed run would trust and fail to load."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
+    partial = path.with_name(f"{path.stem}.partial.npz")
+    np.savez_compressed(partial, **arrays)
+    os.replace(partial, path)
+
+
+def save_keypoints(path: Path, record: KeypointRecord) -> None:
+    _savez_atomic(
         path,
         keypoints=record.keypoints,
         descriptors=record.descriptors,
@@ -268,7 +277,7 @@ def save_matches(path: Path, record: MatchRecord) -> None:
         arrays["inlier_mask"] = record.inlier_mask
     if record.homography is not None:
         arrays["homography"] = record.homography
-    np.savez_compressed(path, **arrays)
+    _savez_atomic(path, **arrays)
 
 
 def load_matches(path: Path) -> MatchRecord:

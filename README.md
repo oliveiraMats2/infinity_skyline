@@ -80,9 +80,9 @@ python main.py sweep --config configs/sweep_plasma_23_sep_plano.yaml  # flat pan
 python main.py sweep --config configs/sweep_360_plasma_images.yaml    # 360, bundle adjustment on
 ```
 
-These sweep files set `resume: true`: a config whose `panorama.png` already exists is
-skipped, so stopping a sweep and running the same command again continues where it
-stopped. Delete that config's results folder to redo it.
+These sweep files set `resume: true`: stopping a sweep and running the same command
+again skips only the configs that finished (`results/<config>/pipeline.done`, written as
+the last step) and redoes the interrupted one in full. Delete that file to redo a config.
 
 ### convert
 

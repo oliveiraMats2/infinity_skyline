@@ -15,7 +15,7 @@ configs:                      # caminhos ou globs, relativos a raiz do repo
   - configs/experiments/reference_loftr.yaml
   # sem bundle_off: o override liga o ajuste global em todas, porque e ele que fecha o laco do 360
 
-resume: true                  # [otimizado 24/09] pula a config cujo panorama.png ja existe: parar e rodar de novo continua de onde parou
+resume: true                  # [otimizado 24/09] pula so a config que terminou (results/<config>/pipeline.done); a interrompida e refeita inteira
 
 override:
   data:

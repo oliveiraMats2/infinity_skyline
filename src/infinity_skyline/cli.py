@@ -448,8 +448,8 @@ def sweep(
     With ``--config sweep.yaml`` the configs come from its ``configs`` list, and its
     ``override`` block is merged over every one of them, so the same axes run over
     another scene or into another output folder without copying 30 files. Its
-    ``resume: true`` skips every config whose ``panorama.png`` already exists, so a
-    stopped sweep picks up at the config it was on.
+    ``resume: true`` skips every config whose run finished (:data:`DONE_MARKER`), so a
+    stopped sweep picks up at the config it was on and redoes that one in full.
     """
     config_paths = list(config_paths or [])
     override: dict = {}
@@ -471,7 +471,7 @@ def sweep(
         name = config_path.stem
         if resume:
             config = load_config(config_path, override)
-            done = config.run.output_root / (config.run.id or name) / "panorama" / "panorama.png"
+            done = config.run.output_root / (config.run.id or name) / DONE_MARKER
             if done.exists():
                 rows.append((name, "pulado", f"already done: {done}"))
                 continue
@@ -517,7 +517,14 @@ def pipeline(config_path: ConfigOption) -> Path:
     return _pipeline(*_prepare(config_path))
 
 
+#: Written as the last step of a pipeline run and removed as its first, so it exists
+#: only when every artifact of the run was produced. ``sweep`` with ``resume`` trusts
+#: this file alone; a ``panorama.png`` can exist in a run stopped halfway.
+DONE_MARKER: str = "pipeline.done"
+
+
 def _pipeline(config: Config, run_dir: Path) -> Path:
+    (run_dir / DONE_MARKER).unlink(missing_ok=True)
     images, keypoints, matches = _stage_geometry(config, run_dir)
 
     names = sorted(keypoints)
@@ -542,6 +549,7 @@ def _pipeline(config: Config, run_dir: Path) -> Path:
         except (RuntimeError, cv2.error) as exc:  # its failure is not ours
             logger.warning("cv2.Stitcher reference not produced: %s", exc)
     logger.info("pipeline finished: %s", run_dir)
+    (run_dir / DONE_MARKER).write_text(datetime.now().isoformat(timespec="seconds"))
     return run_dir
 
 
