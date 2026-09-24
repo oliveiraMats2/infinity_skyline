@@ -5,7 +5,7 @@ Two modes, as the project brief asks for:
 * generation  (``convert``, ``detect``, ``match``, ``visualize``, ``panorama``,
   ``pipeline``): produce artifacts under ``results/<run_id>/``.
 * evaluation   (``evaluate``): hold everything else fixed, sweep detectors and
-  matchers, and write ``metrics.csv`` comparing them.
+  matchers, and write the comparison table under ``artifacts/<run_id>/``.
 
 Every subcommand takes the same ``--config`` YAML and nothing else, so a run is
 reproducible from the file alone.
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import random
+from glob import glob
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -23,19 +24,36 @@ from typing import Annotated, Mapping, Sequence
 import cv2
 import networkx as nx
 import numpy as np
+import pandas as pd
 import typer
+import yaml
 from tqdm.auto import tqdm
 
 from . import __version__
-from .compose import compose_panorama, stitch_with_opencv
+from .compose import ComposeResult, compose_panorama
 from .config import Config, load_config, dump_config
 from .detection.detect import detect_directory
 from .evaluate.benchmark import run_benchmark
-from .geometry.graph import build_graph, infer_order, largest_component, rejected_images
-from .geometry.homography import estimate_all
-from .io import KeypointRecord, MatchRecord, list_images, load_image, save_image
+from .evaluate.metrics import distortion_score, seam_line_continuity
+from .geometry.graph import (
+    build_graph,
+    connectivity_matrix,
+    infer_order,
+    largest_component,
+    rejected_images,
+)
+from .geometry.homography import estimate_all, reprojection_errors
+from .io import (
+    KeypointRecord,
+    MatchRecord,
+    list_images,
+    load_image,
+    save_image,
+    save_keypoints,
+)
 from .logging_setup import get_logger, setup_logging
 from .matching.match import match_all
+from .stitcher import stitch_with_opencv
 from .tools.convert_to_png import convert_directory
 from .visualize.graph import save_graph_figures
 from .visualize.keypoints import save_keypoint_figures
@@ -69,9 +87,9 @@ def _git_commit() -> str:
         return "unknown"
 
 
-def _prepare(config_path: Path) -> tuple[Config, Path]:
+def _prepare(config_path: Path, override: dict | None = None) -> tuple[Config, Path]:
     """Load the config, resolve the run directory, start logging, save provenance."""
-    config = load_config(config_path)
+    config = load_config(config_path, override)
 
     if config.run.id is None:
         # The config file names the run: one config, one results directory, and
@@ -132,7 +150,7 @@ def _load_color(images: list[Path], config: Config) -> dict[str, np.ndarray]:
 def _stitcher_reference(config: Config, images: Mapping[str, np.ndarray]) -> Path:
     """Ensure the cv2.Stitcher reference for ``images`` exists, and return its path.
 
-    There is one file, shared by every run, under ``results/_reference/``. cv2.Stitcher
+    There is one file, shared by every run, under ``results/stitcher/``. cv2.Stitcher
     reads none of this config, running its own features, camera estimation and bundle
     adjustment, so it depends on the frames and their resolution and on nothing else.
     None of the variation axes changes the frames, so computing it per run would stitch
@@ -148,8 +166,8 @@ def _stitcher_reference(config: Config, images: Mapping[str, np.ndarray]) -> Pat
     ).hexdigest()[:10]
     path = (
         config.run.output_root
-        / "_reference"
-        / f"{config.data.input_dir.name}_{len(names)}img_{digest}.png"
+        / "stitcher"
+        / f"reference_cv2_stitcher_{config.data.input_dir.name}_{len(names)}img_{digest}.png"
     )
     if path.exists():
         logger.info("cv2.Stitcher reference already at %s", path)
@@ -185,6 +203,97 @@ def _write_figures(
     return written
 
 
+def _method(config: Config) -> str:
+    """Prefix of every table this run writes: the method, e.g. ``sift_flann`` or
+    ``reference_loftr``. A learned matcher names the method on its own."""
+    if config.matching.name.startswith("reference_"):
+        return config.matching.name
+    return f"{config.detection.name}_{config.matching.name}"
+
+
+def _write_graph_tables(
+    config: Config,
+    graph: nx.Graph,
+    keypoints: Mapping[str, KeypointRecord],
+    matches: Mapping[tuple[str, str], MatchRecord],
+    order: Sequence[str],
+    rejected: Sequence[str],
+) -> None:
+    """Items 4.4, 4.5 and 5.3 as CSV: per pair metrics of the pairs the mosaic uses,
+    the connectivity matrix, and the inferred order with the rejected images."""
+    method = _method(config)
+    rows = []
+    for query, train in graph.edges():
+        record = matches.get((query, train)) or matches[(train, query)]
+        inliers = record.pairs[record.inlier_mask]
+        errors = reprojection_errors(
+            keypoints[record.query].keypoints[inliers[:, 0], :2],
+            keypoints[record.train].keypoints[inliers[:, 1], :2],
+            record.homography,
+        )
+        rows.append(
+            {
+                "query": record.query,
+                "train": record.train,
+                "filtered_matches": record.n_filtered,
+                "n_inliers": record.n_inliers,
+                "inlier_ratio": record.inlier_ratio,
+                "reprojection_mean_px": float(errors.mean()),
+                "reprojection_rmse_px": float(record.meta.get("reprojection_rmse", np.nan)),
+            }
+        )
+    pd.DataFrame(rows).to_csv(config.artifact_path(f"{method}_matching_metrics"), index=False)
+
+    names = list(graph.nodes)
+    pd.DataFrame(connectivity_matrix(graph, names), index=names, columns=names).to_csv(
+        config.artifact_path(f"{method}_graph_connectivity")
+    )
+    status = [(i, name, "ordered") for i, name in enumerate(order)]
+    status += [(None, name, "rejected") for name in rejected]
+    pd.DataFrame(status, columns=["position", "image", "status"]).to_csv(
+        config.artifact_path(f"{method}_graph_order"), index=False
+    )
+    logger.info("graph and pair tables written under %s", config.artifact_path("x").parent)
+
+
+def _save_panorama(config: Config, run_dir: Path, result: ComposeResult) -> None:
+    """The mosaic, one panorama per compared blend, its figures and item 2.4's table.
+
+    One CSV per technique, ``<technique>_blending_metrics.csv``: line continuity across
+    the seams and the distortion of the warps. ``naive`` is the plain average, the row
+    without deghosting.
+    """
+    out_dir = run_dir / "panorama"
+    save_image(out_dir / "panorama.png", result.panorama)
+    for method, image in result.blends.items():
+        save_image(out_dir / f"panorama_{method}.png", image)
+    if result.seam_mask is not None:
+        save_image(out_dir / "seam_mask.png", result.seam_mask)
+    logger.info("panorama %dx%d written to %s", *result.panorama.shape[1::-1], out_dir)
+
+    techniques = dict(result.blends)
+    if result.naive is not None:
+        save_image(out_dir / "naive.png", result.naive)
+        save_panorama_figures(result.panorama, result.naive, config.visualize.figures, run_dir)
+        techniques["naive"] = result.naive
+    distortion = float(
+        np.nanmean([distortion_score(h) for h in result.global_homographies.values()])
+    )
+    for technique, image in techniques.items():
+        pd.DataFrame(
+            [
+                {
+                    "technique": technique,
+                    "seam_line_continuity": seam_line_continuity(image, result.seam_mask),
+                    "distortion_mean": distortion,
+                    "blend_time_ms": result.blend_times_ms.get(technique, np.nan),
+                    "width": image.shape[1],
+                    "height": image.shape[0],
+                }
+            ]
+        ).to_csv(config.artifact_path(f"{technique}_blending_metrics"), index=False)
+
+
 def _stage_geometry(
     config: Config, run_dir: Path
 ) -> tuple[
@@ -195,7 +304,14 @@ def _stage_geometry(
     """Detect, match and run RANSAC. Shared by match/visualize/panorama/pipeline."""
     images = _scene_images(config)
     keypoints = detect_directory(config, images, run_dir / "keypoints")
-    matches = match_all(keypoints, config, run_dir / "matches")
+    matches = match_all(
+        keypoints, config, run_dir / "matches", images={path.stem: path for path in images}
+    )
+    if config.matching.name.startswith("reference_"):
+        # A learned matcher adds the points it matched to each record, so the keypoint
+        # cache is rewritten to stay in step with the match indices.
+        for stem, record in keypoints.items():
+            save_keypoints(run_dir / "keypoints" / f"{stem}__{record.detector}.npz", record)
     matches = estimate_all(keypoints, matches, config, run_dir / "matches")
     return images, keypoints, matches
 
@@ -214,7 +330,7 @@ def convert(
     ] = None,
     max_dimension: Annotated[
         int | None,
-        typer.Option("--max-dimension", help="Longest side in px; overrides data.max_dimension."),
+        typer.Option("--max-dimension", help="Longest side in px, below the 1920x1080 cap."),
     ] = None,
     overwrite: Annotated[
         bool, typer.Option("--overwrite", help="Rewrite PNGs that already exist.")
@@ -231,7 +347,7 @@ def convert(
     written = convert_directory(
         source,
         destination,
-        max_dimension=config.data.max_dimension if max_dimension is None else max_dimension,
+        max_dimension=max_dimension,
         overwrite=overwrite or config.run.overwrite,
     )
     logger.info("wrote %d PNG files to %s", len(written), destination)
@@ -291,22 +407,10 @@ def panorama(config_path: ConfigOption) -> Path:
             "fewer than two connected images; loosen graph.min_inliers or graph.min_inlier_ratio"
         )
     logger.info("inferred order (%d images): %s", len(order), " -> ".join(order))
+    _write_graph_tables(config, graph, keypoints, matches, order, rejected)
 
     color = _load_color([p for p in images if p.stem in set(order)], config)
-    result = compose_panorama(color, order, graph, config.compose)
-
-    out_dir = run_dir / "panorama"
-    save_image(out_dir / "panorama.png", result.panorama)
-    if result.naive is not None:
-        save_image(out_dir / "naive.png", result.naive)
-    if result.seam_mask is not None:
-        save_image(out_dir / "seam_mask.png", result.seam_mask)
-    logger.info("panorama %dx%d written to %s", *result.panorama.shape[1::-1], out_dir)
-
-    if result.naive is not None:
-        save_panorama_figures(
-            result.panorama, result.naive, config.visualize.figures, run_dir
-        )
+    _save_panorama(config, run_dir, compose_panorama(color, order, graph, config.compose))
     try:
         _stitcher_reference(config, color)
     except (RuntimeError, cv2.error) as exc:  # its failure is not ours
@@ -317,9 +421,19 @@ def panorama(config_path: ConfigOption) -> Path:
 @app.command()
 def sweep(
     config_paths: Annotated[
-        list[Path],
+        list[Path] | None,
         typer.Argument(exists=True, dir_okay=False, help="Config files, one panorama each."),
-    ],
+    ] = None,
+    sweep_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--config",
+            "-c",
+            exists=True,
+            dir_okay=False,
+            help="sweep.yaml: `configs` (paths or globs) to run, `override` merged over each.",
+        ),
+    ] = None,
 ) -> None:
     """Run every config given end to end, then report what each one produced.
 
@@ -330,12 +444,39 @@ def sweep(
 
     A variant that fails does not stop the rest, because some of them exist to
     demonstrate a limit rather than to succeed.
+
+    With ``--config sweep.yaml`` the configs come from its ``configs`` list, and its
+    ``override`` block is merged over every one of them, so the same axes run over
+    another scene or into another output folder without copying 30 files. Its
+    ``resume: true`` skips every config whose ``panorama.png`` already exists, so a
+    stopped sweep picks up at the config it was on.
     """
+    config_paths = list(config_paths or [])
+    override: dict = {}
+    resume = False
+    if sweep_path is not None:
+        spec = yaml.safe_load(sweep_path.read_text(encoding="utf-8")) or {}
+        override = spec.get("override") or {}
+        resume = bool(spec.get("resume", False))
+        for pattern in spec.get("configs", []):
+            matched = sorted(glob(pattern))
+            if not matched:
+                raise typer.BadParameter(f"{sweep_path}: no config matches {pattern!r}")
+            config_paths += [Path(p) for p in matched]
+    if not config_paths:
+        raise typer.BadParameter("give config files, or --config with a sweep.yaml")
+
     rows: list[tuple[str, str, str]] = []
     for config_path in tqdm(config_paths, desc="sweep", unit="config"):
         name = config_path.stem
+        if resume:
+            config = load_config(config_path, override)
+            done = config.run.output_root / (config.run.id or name) / "panorama" / "panorama.png"
+            if done.exists():
+                rows.append((name, "pulado", f"already done: {done}"))
+                continue
         try:
-            run_dir = pipeline(config_path)
+            run_dir = _pipeline(*_prepare(config_path, override))
         except Exception as exc:  # a sweep must survive its own failures
             rows.append((name, "FALHOU", f"{type(exc).__name__}: {exc}"))
             logger.warning("%s failed: %s", name, exc)
@@ -348,7 +489,7 @@ def sweep(
     typer.echo("")
     for name, status, detail in rows:
         typer.echo(f"{name:<{width}}  {status:<7}  {detail}")
-    ok = sum(1 for _, status, _ in rows if status == "ok")
+    ok = sum(1 for _, status, _ in rows if status in ("ok", "pulado"))
     typer.echo(f"\n{ok} of {len(rows)} composed a panorama.")
 
 
@@ -360,7 +501,7 @@ def baseline(config_path: ConfigOption) -> Path:
     bundle adjustment and wave correction. A mosaic that is gapless and internally
     consistent can still be wrong, and this is what shows it.
 
-    The result is one file under `results/_reference/`, not one per run, because it
+    The result is one file under `results/stitcher/`, not one per run, because it
     does not depend on this config. The log line says where it landed. Compare it
     against the `panorama.png` of whichever run you are judging.
     """
@@ -373,7 +514,10 @@ def baseline(config_path: ConfigOption) -> Path:
 @app.command()
 def pipeline(config_path: ConfigOption) -> Path:
     """Full generation run: detect, match, graph, figures, progressive and panorama."""
-    config, run_dir = _prepare(config_path)
+    return _pipeline(*_prepare(config_path))
+
+
+def _pipeline(config: Config, run_dir: Path) -> Path:
     images, keypoints, matches = _stage_geometry(config, run_dir)
 
     names = sorted(keypoints)
@@ -381,23 +525,18 @@ def pipeline(config_path: ConfigOption) -> Path:
     rejected = rejected_images(graph, config.graph)
     order = infer_order(graph, largest_component(graph))
     logger.info("order: %s | rejected: %s", " -> ".join(order), rejected or "none")
+    _write_graph_tables(config, graph, keypoints, matches, order, rejected)
 
     color = _load_color(images, config)
     _write_figures(config, run_dir, color, keypoints, matches, graph, rejected)
 
     if len(order) >= 2:
         scene = {name: color[name] for name in order}
-        draw_progressive(scene, order, graph, config.compose, config.visualize.figures, run_dir)
-        result = compose_panorama(scene, order, graph, config.compose)
-        out_dir = run_dir / "panorama"
-        save_image(out_dir / "panorama.png", result.panorama)
-        if result.naive is not None:
-            save_image(out_dir / "naive.png", result.naive)
-            save_panorama_figures(
-                result.panorama, result.naive, config.visualize.figures, run_dir
-            )
-        if result.seam_mask is not None:
-            save_image(out_dir / "seam_mask.png", result.seam_mask)
+        draw_progressive(
+            scene, order, graph, config.compose, config.visualize.figures, run_dir,
+            fast=config.visualize.progressive.fast,
+        )
+        _save_panorama(config, run_dir, compose_panorama(scene, order, graph, config.compose))
         try:
             _stitcher_reference(config, scene)
         except (RuntimeError, cv2.error) as exc:  # its failure is not ours
@@ -411,7 +550,7 @@ def pipeline(config_path: ConfigOption) -> Path:
 # --------------------------------------------------------------------------- #
 @app.command()
 def evaluate(config_path: ConfigOption) -> None:
-    """Sweep detectors and matchers over the same pairs and write metrics.csv."""
+    """Sweep detectors and matchers over the same pairs and write the metrics table."""
     config, run_dir = _prepare(config_path)
     frame = run_benchmark(config)
     logger.info("%d benchmark rows", len(frame))

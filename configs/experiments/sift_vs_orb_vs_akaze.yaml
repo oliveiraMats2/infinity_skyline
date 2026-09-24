@@ -25,6 +25,7 @@ run:
   id: null                    # null = usa o NOME DESTE ARQUIVO; artefatos em results/<id>/
                               # entao configs/experiments/det_orb.yaml escreve em results/det_orb/
   output_root: results        # raiz de saida; run_dir() = output_root / id
+  artifacts_root: artifacts   # toda tabela vira CSV em artifacts/<id>/, com o metodo como prefixo do nome
   seed: 42                    # semente fixa: RANSAC amostra aleatoriamente, sem isso o numero de inliers muda a cada execucao
   log_level: DEBUG            # alterado: log detalhado da comparacao
   overwrite: false            # false protege um results/<id>/ ja existente
@@ -103,13 +104,15 @@ compose:
   # rotacoes vem de homografias encadeadas e nao de bundle adjustment; reavalie quando
   # o item 2 do future_works entrar. Opcoes: horiz | vert | none. So vale em nao planar.
   wave_correct: horiz
+  bundle_adjust: false        # true = refina rotacoes e focal juntas sobre TODAS as arestas do grafo (ajuste global) em vez de confiar so no encadeamento par a par; fecha o laco do 360
   seam:
     finder: graphcut          # graphcut acha o corte de menor custo de cor; dp_color e mais rapido e pior
     scale: 0.25               # a costura roda em escala reduzida porque o graph cut e O(pixels) e a linha de corte e uma estrutura de baixa frequencia: achar em 1/4 e reescalar da o mesmo corte por uma fracao do tempo e da memoria
   blend:
-    method: multiband         # multiband dissolve a emenda por faixa de frequencia; feather so faz rampa linear
+    method: multiband         # multiband dissolve a emenda por faixa de frequencia; feather faz rampa estreita na costura; linear pondera toda a sobreposicao pela distancia a borda
     bands: 5
     sharpness: 0.02           # usado apenas por feather
+    compare: [feather, linear, multiband]   # um panorama_<metodo>.png e um <metodo>_blending_metrics.csv por tecnica, todos sobre a mesma costura
   exposure: gain_blocks       # compensacao de exposicao por blocos: as pastas low_bright e high_bright provam que a mesma vista chega com brilhos diferentes, e um ganho global unico nao corrige vinhetagem nem variacao dentro do quadro
   save_naive: true            # guarda tambem a media simples sem costura, que e a comparacao de deghosting da Etapa 6.4
 
@@ -172,6 +175,8 @@ visualize:
     enabled: true
     layout: spring
     annotate_weights: true    # escreve o numero de inliers em cada aresta
+  progressive:
+    fast: true                # [otimizado 24/09] passos do alinhamento progressivo (5.4) sem graph cut e sem exposicao: eram ~75% do tempo de cada run; o panorama final continua completo
   figures:
     dpi: 150
     format: png

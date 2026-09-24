@@ -1,15 +1,14 @@
 # =============================================================================
-# graph_loose
-#   eixo     : graph.min_inliers e min_inlier_ratio
-#   variante : 15 / 0.15
-#   saida    : results/graph_loose/
+# reference_loftr
+#   eixo     : detection.name + matching.name
+#   variante : reference_loftr
+#   saida    : results/reference_loftr/
 #
-# Copia completa de configs/default.yaml, com UMA UNICA linha alterada (marcada
-# com 'eixo desta copia'). Sem heranca: este arquivo se le sozinho.
+# Copia completa de configs/default.yaml, com o que muda marcado com
+# 'eixo desta copia'. Sem heranca: este arquivo se le sozinho.
 #
-# Limiar frouxo: conecta mais imagens, mas deixa entrar casamento falso de
-# estrutura repetitiva (corrimao, colunas, fachada regular). Duas linhas mudam
-# aqui porque os dois criterios sao um so eixo: absoluto e relativo.
+# LoFTR nao tem detector: casa o par direto e os keypoints saem do proprio casamento,
+# entao o nome vai nos dois campos. Requer: uv sync --extra learned
 # =============================================================================
 
 # Configuracao base do infinity-skyline.
@@ -44,14 +43,14 @@ data:
 
 # Detector usado no modo geracao (o modo evaluate ignora isto e varre evaluate.detectors).
 detection:
-  name: sift
+  name: reference_loftr       # eixo desta copia
   params: {}                  # vazio = defaults do OpenCV; para comparar detectores use nfeatures IGUAL para os tres, senao a diferenca medida e so orcamento de keypoints, nao qualidade do detector
   repetitions: 1              # [otimizado 24/09] era 10; o tempo so e lido no evaluate, que usa sift_vs_orb_vs_akaze.yaml com repeticoes
   warmup: 0                   # [otimizado 24/09] era 2; sem cronometrar, nao ha o que aquecer
 
 # Como os descritores de duas imagens sao confrontados.
 matching:
-  name: flann                 # flann e aproximado e rapido; brute_force e exato e serve de referencia
+  name: reference_loftr       # eixo desta copia
   flann:
     float_descriptors: {}     # vazio = bloco KDTREE padrao para SIFT (descritor float32)
     binary_descriptors: {}    # vazio = bloco LSH padrao para ORB e AKAZE (descritor uint8); KDTREE nao funciona em distancia de Hamming
@@ -76,8 +75,8 @@ geometry:
 
 # Etapa 4: grafo de conectividade entre as imagens da cena.
 graph:
-  min_inliers: 15             # eixo desta copia
-  min_inlier_ratio: 0.15      # eixo desta copia
+  min_inliers: 30             # barra o par com sobreposicao pequena demais: poucos inliers, mesmo que quase todos os matches concordem
+  min_inlier_ratio: 0.25      # barra o par cujo consenso e fraco: muitos matches, mas a maioria e ruido que o RANSAC descartou
   build_order: true           # infere a ordem da varredura panoramica pelo caminho de maior diametro do grafo
   reject_isolated: true       # tudo fora da maior componente conexa e intruso de outra cena
 

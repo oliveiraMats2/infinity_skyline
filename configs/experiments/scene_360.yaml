@@ -1,15 +1,14 @@
 # =============================================================================
-# graph_loose
-#   eixo     : graph.min_inliers e min_inlier_ratio
-#   variante : 15 / 0.15
-#   saida    : results/graph_loose/
+# scene_360
+#   eixo     : data.input_dir + compose.bundle_adjust
+#   variante : 360_graus_images + true
+#   saida    : results/scene_360/
 #
-# Copia completa de configs/default.yaml, com UMA UNICA linha alterada (marcada
-# com 'eixo desta copia'). Sem heranca: este arquivo se le sozinho.
+# Copia completa de configs/default.yaml, com o que muda marcado com
+# 'eixo desta copia'. Sem heranca: este arquivo se le sozinho.
 #
-# Limiar frouxo: conecta mais imagens, mas deixa entrar casamento falso de
-# estrutura repetitiva (corrimao, colunas, fachada regular). Duas linhas mudam
-# aqui porque os dois criterios sao um so eixo: absoluto e relativo.
+# Panorama 360 graus (X2): a varredura completa. A projecao (cylindrical | spherical) vem de
+# compose.projection; o ajuste global fecha o laco entre o primeiro e o ultimo quadro.
 # =============================================================================
 
 # Configuracao base do infinity-skyline.
@@ -35,7 +34,7 @@ data:
   # Esta e a pasta de PNG ja convertidos, ou seja, a SAIDA do `convert`, nao a origem RAW.
   # O `convert` nao le a origem daqui, ela vai no --source:
   #   python main.py convert --config configs/default.yaml --source data/high_bright
-  input_dir: data/processed/high_bright
+  input_dir: data/processed/360_graus_images  # eixo desta copia
   intruders_dir: null         # apontar para outra pasta de cena (por exemplo data/processed/360_graus_images) injeta imagens estranhas e testa a rejeicao da Etapa 4
   extensions:
     - .png                    # `convert` escreve PNG lossless; ler .CR2 aqui funcionaria, mas pagaria o custo do rawpy em toda repeticao
@@ -76,8 +75,8 @@ geometry:
 
 # Etapa 4: grafo de conectividade entre as imagens da cena.
 graph:
-  min_inliers: 15             # eixo desta copia
-  min_inlier_ratio: 0.15      # eixo desta copia
+  min_inliers: 30             # barra o par com sobreposicao pequena demais: poucos inliers, mesmo que quase todos os matches concordem
+  min_inlier_ratio: 0.25      # barra o par cujo consenso e fraco: muitos matches, mas a maioria e ruido que o RANSAC descartou
   build_order: true           # infere a ordem da varredura panoramica pelo caminho de maior diametro do grafo
   reject_isolated: true       # tudo fora da maior componente conexa e intruso de outra cena
 
@@ -103,7 +102,7 @@ compose:
   # rotacoes vem de homografias encadeadas e nao de bundle adjustment; reavalie quando
   # o item 2 do future_works entrar. Opcoes: horiz | vert | none. So vale em nao planar.
   wave_correct: horiz
-  bundle_adjust: false        # true = refina rotacoes e focal juntas sobre TODAS as arestas do grafo (ajuste global) em vez de confiar so no encadeamento par a par; fecha o laco do 360
+  bundle_adjust: true         # eixo desta copia
   seam:
     finder: graphcut          # graphcut acha o corte de menor custo de cor; dp_color e mais rapido e pior
     scale: 0.25               # a costura roda em escala reduzida porque o graph cut e O(pixels) e a linha de corte e uma estrutura de baixa frequencia: achar em 1/4 e reescalar da o mesmo corte por uma fracao do tempo e da memoria

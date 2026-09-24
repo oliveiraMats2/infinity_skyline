@@ -1,14 +1,15 @@
 """Panorama composition: stages 5.2, 6.1, 6.2 and 6.3.
 
 The pipeline is the classic OpenCV stitching detail flow, driven by the graph
-built in :mod:`geometry.graph` instead of by a bundle adjustment:
+built in :mod:`geometry.graph`, with the bundle adjustment optional:
 
 1. chain the pairwise homographies of the graph into one homography per image,
-   all expressed in the frame of a single reference image (stage 5.2);
+   all expressed in the frame of a single reference image (stage 5.2), and
+   optionally refine them jointly over every edge with a bundle adjustment;
 2. warp every source into that frame, planar or onto a cylinder/sphere, and size
    the canvas from the union of the warped corners (stage 6.1);
 3. compensate exposure, then cut an optimal seam through the overlaps (6.2);
-4. blend across the seam with a multiband or feather blender (6.3).
+4. blend across the seam with a multiband, feather or linear blender (6.3).
 
 Every image is warped into its own bounding box, not into a full canvas copy, so
 the peak memory is the sum of the warped tiles and not N times the canvas.
@@ -16,12 +17,15 @@ the peak memory is the sum of the warped tiles and not N times the canvas.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 import cv2
 import networkx as nx
 import numpy as np
+from scipy.optimize import least_squares
+from scipy.spatial.transform import Rotation
 from tqdm.auto import tqdm
 
 from .config import BlendConfig, ComposeConfig, SeamConfig
@@ -38,7 +42,6 @@ PROJECTION_NAMES: dict[str, str] = {
 
 #: ``compose.exposure`` to the ``cv2.detail.ExposureCompensator_*`` enum name.
 EXPOSURE_TYPES: dict[str, str] = {
-    "none": "ExposureCompensator_NO",
     "gain": "ExposureCompensator_GAIN",
     "gain_blocks": "ExposureCompensator_GAIN_BLOCKS",
 }
@@ -62,6 +65,9 @@ class ComposeResult:
     seam_mask: np.ndarray | None = None
     warped_corners: list[tuple[int, int]] = field(default_factory=list)
     global_homographies: dict[str, np.ndarray] = field(default_factory=dict)
+    # One panorama per ``blend.compare`` method, same tiles and seams, and its time.
+    blends: dict[str, np.ndarray] = field(default_factory=dict)
+    blend_times_ms: dict[str, float] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #
@@ -99,42 +105,6 @@ def _edge_homography(graph: nx.Graph, source: str, target: str) -> np.ndarray:
         # The edge stores query -> train, and we are walking it backwards.
         return np.linalg.inv(homography)
     return homography
-
-
-#: cv2.Stitcher status codes, by name, so a failure says what happened.
-STITCHER_STATUS: dict[int, str] = {
-    getattr(cv2, name): text
-    for name, text in (
-        ("Stitcher_OK", "ok"),
-        ("Stitcher_ERR_NEED_MORE_IMGS", "need more images, too little overlap"),
-        ("Stitcher_ERR_HOMOGRAPHY_EST_FAIL", "homography estimation failed"),
-        ("Stitcher_ERR_CAMERA_PARAMS_ADJUST_FAIL", "camera parameter adjustment failed"),
-    )
-    if hasattr(cv2, name)
-}
-
-
-def stitch_with_opencv(images: Sequence[np.ndarray]) -> np.ndarray:
-    """Compose the same images with cv2.Stitcher, as an independent reference.
-
-    This is not part of the pipeline under study and shares nothing with it: OpenCV
-    runs its own features, its own camera estimation, bundle adjustment and wave
-    correction. That is exactly why it is useful. It answers the question our own
-    output cannot answer about itself, which is not "is this mosaic self consistent"
-    but "does it agree with a known good implementation".
-
-    Worth taking seriously: both the focal defect and the mirrored sweep produced
-    mosaics that were internally consistent, gapless and wrong, and comparing against
-    this is what exposed them.
-    """
-    stitcher = cv2.Stitcher_create(cv2.Stitcher_PANORAMA)
-    status, panorama = stitcher.stitch(list(images))
-    if status != cv2.Stitcher_OK:
-        raise RuntimeError(
-            f"cv2.Stitcher failed: {STITCHER_STATUS.get(status, f'status {status}')}"
-        )
-    logger.info("cv2.Stitcher reference: %dx%d px", panorama.shape[1], panorama.shape[0])
-    return panorama
 
 
 def chain_homographies(
@@ -427,6 +397,104 @@ def _rotation_from_homography(intrinsics: np.ndarray, homography: np.ndarray) ->
     return np.ascontiguousarray(rotation, dtype=np.float32)
 
 
+def _intrinsics(focal: float, image: np.ndarray) -> np.ndarray:
+    """K with the principal point at the centre of ``image``."""
+    height, width = image.shape[:2]
+    return np.array(
+        [[focal, 0.0, width / 2.0], [0.0, focal, height / 2.0], [0.0, 0.0, 1.0]],
+        dtype=np.float32,
+    )
+
+
+def _bundle_adjust(
+    graph: nx.Graph,
+    sources: Mapping[str, np.ndarray],
+    homographies: Mapping[str, np.ndarray],
+    reference: str,
+    focal: float,
+) -> tuple[dict[str, np.ndarray], float]:
+    """Refine every rotation and the shared focal jointly over all graph edges.
+
+    The chain reads only the spanning tree, so the edges it leaves out, the ones
+    that close a loop, constrain nothing. Here every edge votes: a grid of points
+    of the query frame, mapped by the edge homography into the train frame, must
+    land on the same pixels through the cameras, ``K W_t^T W_q K^-1 p``, with W the
+    warper rotation of :func:`_rotation_from_homography`. The reference stays at
+    identity; the rotation vectors of the others and the log focal are solved by a
+    robust least squares. The result goes back out as homographies to the
+    reference, ``K_ref W K^-1``, so both warp paths take it unchanged. When the
+    solve fails or does not lower the residual, the chained estimates are kept.
+    """
+    names = list(homographies)
+    index = {name: i for i, name in enumerate(names)}
+    free = [i for i, name in enumerate(names) if name != reference]
+    start = np.array(
+        [_rotation_from_homography(_intrinsics(focal, sources[n]), homographies[n]) for n in names]
+    )
+    centers = np.array([_intrinsics(1.0, sources[n])[:2, 2] for n in names], dtype=np.float64)
+
+    query_ids, train_ids, query_pts, train_pts = [], [], [], []
+    for _, _, data in graph.edges(data=True):
+        query, train = data["query"], data["train"]
+        if query not in index or train not in index:
+            continue
+        height, width = sources[query].shape[:2]
+        grid = np.stack(
+            np.meshgrid(np.linspace(0, width, 8), np.linspace(0, height, 6)), axis=-1
+        ).reshape(-1, 1, 2)
+        mapped = cv2.perspectiveTransform(grid, np.asarray(data["homography"], np.float64))
+        grid, mapped = grid.reshape(-1, 2), mapped.reshape(-1, 2)
+        inside = ((mapped >= 0) & (mapped < sources[train].shape[1::-1])).all(axis=1)
+        query_ids += [index[query]] * int(inside.sum())
+        train_ids += [index[train]] * int(inside.sum())
+        query_pts.append(grid[inside])
+        train_pts.append(mapped[inside])
+    if not query_ids:
+        logger.warning("no edge overlaps another frame; skipping bundle adjustment")
+        return dict(homographies), focal
+    query_pts, train_pts = np.concatenate(query_pts), np.concatenate(train_pts)
+
+    def rotations(params: np.ndarray) -> np.ndarray:
+        out = np.repeat(np.eye(3)[None], len(names), axis=0)
+        out[free] = Rotation.from_rotvec(params[1:].reshape(-1, 3)).as_matrix()
+        return out
+
+    def residuals(params: np.ndarray) -> np.ndarray:
+        f, rot = np.exp(params[0]), rotations(params)
+        rays = np.column_stack(((query_pts - centers[query_ids]) / f, np.ones(len(query_pts))))
+        world = np.einsum("nij,nj->ni", rot[query_ids], rays)
+        camera = np.einsum("nji,nj->ni", rot[train_ids], world)
+        return (f * camera[:, :2] / camera[:, 2:] + centers[train_ids] - train_pts).ravel()
+
+    def rms(params: np.ndarray) -> float:
+        # Per point, over x and y together.
+        return float(np.sqrt(2.0 * np.mean(residuals(params) ** 2)))
+
+    x0 = np.concatenate([[np.log(focal)], Rotation.from_matrix(start[free]).as_rotvec().ravel()])
+    try:
+        solved = least_squares(residuals, x0, loss="soft_l1", f_scale=2.0, x_scale="jac")
+    except (ValueError, np.linalg.LinAlgError) as exc:
+        logger.warning("bundle adjustment failed (%s); keeping the chained estimates", exc)
+        return dict(homographies), focal
+    before, after = rms(x0), rms(solved.x)
+    logger.info(
+        "bundle adjustment: %d points over %d edges, rms %.2f -> %.2f px, focal %.1f -> %.1f px",
+        len(query_pts), len(set(zip(query_ids, train_ids))), before, after, focal,
+        np.exp(solved.x[0]),
+    )
+    if not solved.success or not after < before:
+        logger.warning("bundle adjustment did not improve the residual; keeping the chained estimates")
+        return dict(homographies), focal
+
+    focal = float(np.exp(solved.x[0]))
+    k_ref = _intrinsics(focal, sources[reference]).astype(np.float64)
+    refined = {
+        name: k_ref @ rotation @ np.linalg.inv(_intrinsics(focal, sources[name]))
+        for name, rotation in zip(names, rotations(solved.x))
+    }
+    return refined, focal
+
+
 def _mean_roll_degrees(rotations: Sequence[np.ndarray]) -> float:
     """Mean roll of the rotations, in degrees, zero when the horizon is level."""
     return float(np.mean([np.degrees(np.arctan2(r[1, 0], r[0, 0])) for r in rotations]))
@@ -472,11 +540,7 @@ def _warp_rotation(
     intrinsics_all: list[np.ndarray] = []
     rotations: list[np.ndarray] = []
     for name in names:
-        height, width = sources[name].shape[:2]
-        intrinsics = np.array(
-            [[focal, 0.0, width / 2.0], [0.0, focal, height / 2.0], [0.0, 0.0, 1.0]],
-            dtype=np.float32,
-        )
+        intrinsics = _intrinsics(focal, sources[name])
         intrinsics_all.append(intrinsics)
         rotations.append(_rotation_from_homography(intrinsics, homographies[name]))
 
@@ -575,9 +639,9 @@ def _find_seams(tiles: list[Tile], config: SeamConfig) -> list[np.ndarray]:
         upscaled = cv2.resize(
             array, (full.shape[1], full.shape[0]), interpolation=cv2.INTER_NEAREST
         )
-        # One pixel of dilation closes the background crack the upscaling opens
-        # between two neighbouring regions; the AND keeps it inside the image.
-        upscaled = cv2.dilate(upscaled, kernel, iterations=1)
+        # The upscaling opens a crack of up to 1/scale pixels between two neighbouring
+        # regions, so dilate by that much to close it; the AND keeps it inside the image.
+        upscaled = cv2.dilate(upscaled, kernel, iterations=int(np.ceil(1.0 / scale)))
         seamed.append(cv2.bitwise_and(upscaled, full))
     return seamed
 
@@ -592,7 +656,13 @@ def _blend(
     height: int,
     config: BlendConfig,
 ) -> np.ndarray:
-    """Merge the tiles across their seams into the final canvas."""
+    """Merge the tiles across their seams into the final canvas.
+
+    Linear ignores the seams: it averages the whole overlap of the original tile
+    masks, which is what sets it apart from feather, a narrow ramp across the cut.
+    """
+    if config.method == "linear":
+        return _average(tiles, width, height, ramp=True)
     if config.method == "none":
         canvas = np.zeros((height, width, 3), dtype=np.uint8)
         for (image, _, (x, y)), mask in tqdm(
@@ -634,15 +704,27 @@ def _blend(
     return np.clip(np.asarray(blended), 0, 255).astype(np.uint8)
 
 
-def _compose_naive(
-    tiles: list[Tile], width: int, height: int
+def _average(
+    tiles: list[Tile], width: int, height: int, ramp: bool = False
 ) -> np.ndarray:
-    """Stage 6.4 reference: plain average of the overlaps, so ghosting shows."""
+    """Stage 6.4 reference: plain average of the overlaps, so ghosting shows.
+
+    With ``ramp`` every tile weighs by its distance to its own border instead,
+    which is linear blending.
+    """
     accumulator = np.zeros((height, width, 3), dtype=np.float32)
     counter = np.zeros((height, width), dtype=np.float32)
-    for image, mask, (x, y) in tqdm(tiles, desc="Composing the naive average", unit="img"):
+    for image, mask, (x, y) in tqdm(
+        tiles, desc=f"Averaging ({'linear' if ramp else 'naive'})", unit="img"
+    ):
         tile_h, tile_w = image.shape[:2]
-        valid = (mask > 0).astype(np.float32)
+        if ramp:
+            # The zero border makes the tile edge count as border too when the
+            # mask fills the whole tile, as it does under a pure translation.
+            padded = cv2.copyMakeBorder(mask, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
+            valid = cv2.distanceTransform(padded, cv2.DIST_L2, 3)[1:-1, 1:-1]
+        else:
+            valid = (mask > 0).astype(np.float32)
         accumulator[y : y + tile_h, x : x + tile_w] += image.astype(np.float32) * valid[..., None]
         counter[y : y + tile_h, x : x + tile_w] += valid
     np.maximum(counter, 1.0, out=counter)
@@ -692,44 +774,66 @@ def compose_panorama(
 
     sources = {name: _as_bgr(images[name]) for name in names}
 
-    tiles: list[Tile] | None = None
-    canvas_w = canvas_h = 0
-    if config.projection != "planar":
+    focal: float | None = None
+    if config.projection != "planar" or config.bundle_adjust:
         frame_width = max(image.shape[1] for image in sources.values())
         focal = _resolve_focal(config, graph, frame_width)
-        if focal is not None:
-            try:
-                tiles, canvas_w, canvas_h = _warp_rotation(
-                    sources, names, homographies, config.projection, focal,
-                    config.canvas_max, config.wave_correct,
-                )
-            except (cv2.error, RuntimeError, np.linalg.LinAlgError) as exc:
-                # The rotation warper is an approximation here: the rotations come
-                # from the homographies themselves, not from a bundle adjustment,
-                # so a bad estimate degrades to the planar warp instead of failing.
-                logger.warning(
-                    "the %s warper failed (%s); falling back to the planar projection",
-                    config.projection,
-                    exc,
-                )
-                tiles = None
+    if config.bundle_adjust and focal is None:
+        logger.warning("no focal to start from; skipping bundle adjustment")
+    elif config.bundle_adjust:
+        homographies, focal = _bundle_adjust(
+            graph, sources, {name: homographies[name] for name in names}, reference, focal
+        )
+
+    tiles: list[Tile] | None = None
+    canvas_w = canvas_h = 0
+    if config.projection != "planar" and focal is not None:
+        try:
+            tiles, canvas_w, canvas_h = _warp_rotation(
+                sources, names, homographies, config.projection, focal,
+                config.canvas_max, config.wave_correct,
+            )
+        except (cv2.error, RuntimeError, np.linalg.LinAlgError) as exc:
+            # The rotation warper is an approximation here: without bundle_adjust
+            # the rotations come from the chained homographies alone, so a bad
+            # estimate degrades to the planar warp instead of failing.
+            logger.warning(
+                "the %s warper failed (%s); falling back to the planar projection",
+                config.projection,
+                exc,
+            )
+            tiles = None
     if tiles is None:
         tiles, canvas_w, canvas_h = _warp_planar(
             sources, names, homographies, config.canvas_max
         )
     logger.info("canvas: %dx%d px from %d warped images", canvas_w, canvas_h, len(tiles))
 
-    tiles = _compensate_exposure(tiles, config.exposure)
-    naive = _compose_naive(tiles, canvas_w, canvas_h) if config.save_naive else None
+    if config.exposure != "none":
+        tiles = _compensate_exposure(tiles, config.exposure)
+    else:
+        logger.info("exposure compensation skipped (compose.exposure=none)")
+    naive = _average(tiles, canvas_w, canvas_h) if config.save_naive else None
 
     seam_masks = _find_seams(tiles, config.seam)
-    panorama = _blend(tiles, seam_masks, canvas_w, canvas_h, config.blend)
+    blends: dict[str, np.ndarray] = {}
+    blend_times_ms: dict[str, float] = {}
+    for method in dict.fromkeys([config.blend.method, *config.blend.compare]):
+        started = time.perf_counter()
+        blends[method] = _blend(
+            tiles, seam_masks, canvas_w, canvas_h,
+            config.blend.model_copy(update={"method": method}),
+        )
+        blend_times_ms[method] = (time.perf_counter() - started) * 1000.0
+        logger.info("blend %s: %.0f ms", method, blend_times_ms[method])
     corners = [corner for _, _, corner in tiles]
 
     return ComposeResult(
-        panorama=panorama,
+        panorama=blends[config.blend.method],
         naive=naive,
         seam_mask=_build_seam_mask(seam_masks, corners, canvas_w, canvas_h),
         warped_corners=corners,
         global_homographies={name: homographies[name] for name in names},
+        blends={method: blends[method] for method in config.blend.compare},
+        blend_times_ms={method: blend_times_ms[method] for method in config.blend.compare},
     )

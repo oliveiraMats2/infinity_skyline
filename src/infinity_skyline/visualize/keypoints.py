@@ -27,6 +27,13 @@ _RESPONSE_COLUMN: int = 4
 #: Bins per axis of the spatial density map, over the normalized unit square.
 _DENSITY_BINS: int = 50
 
+#: Harris parameters (blockSize, Sobel ksize, k) and the corner threshold as a
+#: fraction of the peak response, fixed here: the panel is illustrative only.
+_HARRIS_BLOCK: int = 2
+_HARRIS_KSIZE: int = 3
+_HARRIS_K: float = 0.04
+_CORNER_FRACTION: float = 0.01
+
 
 def to_bgr(image: np.ndarray) -> np.ndarray:
     """Promote a grayscale image to 3 channels so coloured overlays show up."""
@@ -68,13 +75,61 @@ def draw_keypoints(
     )
 
 
+def save_detection_figure(
+    image: np.ndarray,
+    record: KeypointRecord,
+    config: VisualizeConfig,
+    path: Path,
+) -> None:
+    """Show the detection pipeline on one image: image, Harris R, corners, keypoints."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
+    response = cv2.cornerHarris(np.float32(gray), _HARRIS_BLOCK, _HARRIS_KSIZE, _HARRIS_K)
+    # Corners are thresholded local maxima: dilation is a 3x3 non-max suppression.
+    corners = (response > _CORNER_FRACTION * response.max()) & (
+        response == cv2.dilate(response, None)
+    )
+    ys, xs = np.nonzero(corners)
+    rgb = cv2.cvtColor(to_bgr(image), cv2.COLOR_BGR2RGB)
+
+    figure, axes = plt.subplots(1, 4, figsize=(20, 5))
+    axes[0].imshow(rgb)
+    axes[0].set_title("Imagem")
+    # Symmetric log: R spans orders of magnitude and its sign separates corners
+    # (positive) from edges (negative), so a linear map shows only the top peaks.
+    peak = float(np.abs(response).max()) or 1.0
+    mesh = axes[1].imshow(
+        response,
+        cmap="RdBu_r",
+        norm=matplotlib.colors.SymLogNorm(linthresh=peak * 1e-4, vmin=-peak, vmax=peak),
+    )
+    axes[1].set_title("Resposta R (Harris)")
+    figure.colorbar(mesh, ax=axes[1], fraction=0.046)
+    axes[2].imshow(rgb)
+    axes[2].plot(xs, ys, "r+", markersize=4)
+    axes[2].set_title(f"Cantos ({len(xs)})")
+    if record.n_keypoints:
+        axes[3].imshow(cv2.cvtColor(draw_keypoints(image, record, config), cv2.COLOR_BGR2RGB))
+    else:
+        axes[3].imshow(rgb)
+        axes[3].text(
+            0.5, 0.5, "sem keypoints (metodo sem detector)", transform=axes[3].transAxes,
+            ha="center", color="white", backgroundcolor="black",
+        )
+    axes[3].set_title(f"Keypoints multiescala ({record.detector}, {record.n_keypoints})")
+    for axis in axes:
+        axis.set_axis_off()
+    figure.tight_layout()
+    figure.savefig(path, dpi=config.figures.dpi)
+    plt.close(figure)  # closing matters: this runs inside loops
+
+
 def save_keypoint_figures(
     images: Mapping[str, np.ndarray],
     records: Mapping[str, KeypointRecord],
     config: VisualizeConfig,
     run_dir: Path,
 ) -> list[Path]:
-    """Write one overlay per image plus the pooled distribution figure.
+    """Write one overlay and one detection figure per image, plus the pooled distribution.
 
     The overlays answer "where did this detector fire on this image"; the pooled
     figure answers "how does this detector behave on the scene as a whole", which
@@ -84,6 +139,9 @@ def save_keypoint_figures(
     for name, record in tqdm(records.items(), desc="fig:keypoints", unit="img"):
         path = config.figures.path(run_dir, "keypoints", f"keypoints_{name}")
         save_image(path, draw_keypoints(images[name], record, config))
+        paths.append(path)
+        path = config.figures.path(run_dir, "keypoints", f"detection_{name}")
+        save_detection_figure(images[name], record, config, path)
         paths.append(path)
 
     populated = [record for record in records.values() if record.n_keypoints]

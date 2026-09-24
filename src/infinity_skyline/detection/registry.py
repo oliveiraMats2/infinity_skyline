@@ -1,7 +1,7 @@
 """Detector construction from YAML params.
 
-One YAML block is shared by the three detectors, so most keys are meaningless for
-at least one of them. Each constructor therefore has an explicit allowlist and
+One YAML block is shared by every detector, so most keys are meaningless for at
+least one of them. Each constructor therefore has an explicit allowlist and
 anything outside it is dropped with a warning naming the key and the detector.
 """
 
@@ -13,6 +13,7 @@ from typing import Any, Callable, Mapping
 import cv2
 
 from ..logging_setup import get_logger
+from ..stitcher import LoFTRDetector, SuperPoint
 
 logger = get_logger(__name__)
 
@@ -45,6 +46,8 @@ ALLOWED_PARAMS: dict[str, frozenset[str]] = {
             "diffusivity",
         }
     ),
+    "reference_superpoint": frozenset({"nfeatures"}),  # max keypoints kept by score
+    "reference_loftr": frozenset(),
 }
 
 #: OpenCV class name behind each detector key.
@@ -75,7 +78,10 @@ def _construct(cv_name: str, **kwargs: Any) -> cv2.Feature2D:
 
 #: Factories keyed by the config ``detection.name``.
 DETECTORS: dict[str, Callable[..., cv2.Feature2D]] = {
-    key: partial(_construct, cv_name) for key, cv_name in _CV_NAMES.items()
+    **{key: partial(_construct, cv_name) for key, cv_name in _CV_NAMES.items()},
+    # learned references with the same detectAndCompute, see stitcher/
+    "reference_superpoint": SuperPoint,
+    "reference_loftr": LoFTRDetector,
 }
 
 #: Detectors producing binary descriptors, so Hamming distance and uint8 buffers.
@@ -105,9 +111,9 @@ def create_detector(name: str, params: Mapping[str, Any]) -> cv2.Feature2D:
                 key,
                 dropped,
                 params[dropped],
-                _CV_NAMES[key],
+                _CV_NAMES.get(key, key),
             )
-    logger.debug("%s created with %s", _CV_NAMES[key], kwargs)
+    logger.debug("%s created with %s", _CV_NAMES.get(key, key), kwargs)
     return DETECTORS[key](**kwargs)
 
 

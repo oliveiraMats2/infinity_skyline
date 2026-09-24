@@ -1,0 +1,19 @@
+# =============================================================================
+# sweep
+#   python main.py sweep --config configs/sweep.yaml
+#
+# Roda cada config de `configs` pelo `pipeline`, com `override` mesclado por cima
+# de cada uma (merge recursivo, o override vence, como em `extends`). Os arquivos
+# de configs/ nao sao editados: trocar de cena ou de pasta de saida e so aqui.
+# =============================================================================
+
+configs:                      # caminhos ou globs, relativos a raiz do repo
+  - configs/default.yaml
+  - configs/experiments/*.yaml
+
+override:
+  data:
+    input_dir: data/processed/panoramic_23_sep   # saida do convert, nao os HEIC originais
+  run:
+    output_root: /Users/oliveira_mats/panoramic_23_sep/results
+    artifacts_root: /Users/oliveira_mats/panoramic_23_sep/artifacts

@@ -1,15 +1,14 @@
 # =============================================================================
-# graph_loose
-#   eixo     : graph.min_inliers e min_inlier_ratio
-#   variante : 15 / 0.15
-#   saida    : results/graph_loose/
+# reference_superpoint
+#   eixo     : detection.name
+#   variante : reference_superpoint
+#   saida    : results/reference_superpoint/
 #
-# Copia completa de configs/default.yaml, com UMA UNICA linha alterada (marcada
-# com 'eixo desta copia'). Sem heranca: este arquivo se le sozinho.
+# Copia completa de configs/default.yaml, com o que muda marcado com
+# 'eixo desta copia'. Sem heranca: este arquivo se le sozinho.
 #
-# Limiar frouxo: conecta mais imagens, mas deixa entrar casamento falso de
-# estrutura repetitiva (corrimao, colunas, fachada regular). Duas linhas mudam
-# aqui porque os dois criterios sao um so eixo: absoluto e relativo.
+# SuperPoint (aprendido) no lugar do detector proprio; descritores casados pelo FLANN
+# com o teste de Lowe, como os de SIFT. Requer: uv sync --extra learned
 # =============================================================================
 
 # Configuracao base do infinity-skyline.
@@ -44,7 +43,7 @@ data:
 
 # Detector usado no modo geracao (o modo evaluate ignora isto e varre evaluate.detectors).
 detection:
-  name: sift
+  name: reference_superpoint  # eixo desta copia
   params: {}                  # vazio = defaults do OpenCV; para comparar detectores use nfeatures IGUAL para os tres, senao a diferenca medida e so orcamento de keypoints, nao qualidade do detector
   repetitions: 1              # [otimizado 24/09] era 10; o tempo so e lido no evaluate, que usa sift_vs_orb_vs_akaze.yaml com repeticoes
   warmup: 0                   # [otimizado 24/09] era 2; sem cronometrar, nao ha o que aquecer
@@ -76,8 +75,8 @@ geometry:
 
 # Etapa 4: grafo de conectividade entre as imagens da cena.
 graph:
-  min_inliers: 15             # eixo desta copia
-  min_inlier_ratio: 0.15      # eixo desta copia
+  min_inliers: 30             # barra o par com sobreposicao pequena demais: poucos inliers, mesmo que quase todos os matches concordem
+  min_inlier_ratio: 0.25      # barra o par cujo consenso e fraco: muitos matches, mas a maioria e ruido que o RANSAC descartou
   build_order: true           # infere a ordem da varredura panoramica pelo caminho de maior diametro do grafo
   reject_isolated: true       # tudo fora da maior componente conexa e intruso de outra cena
 

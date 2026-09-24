@@ -171,3 +171,12 @@ def test_list_images_filters_by_extension_and_sorts(tmp_path: Path) -> None:
 
 def test_pair_stem_uses_stems_only() -> None:
     assert pair_stem(Path("/data/img_01.png"), "img_02.png") == "img_01__img_02"
+
+
+def test_convert_caps_at_1920x1080_in_either_orientation() -> None:
+    from infinity_skyline.tools.convert_to_png import fit_max_size
+
+    assert fit_max_size(np.zeros((3024, 4032, 3), np.uint8)).shape[:2] == (1080, 1440)
+    assert fit_max_size(np.zeros((4032, 3024, 3), np.uint8)).shape[:2] == (1440, 1080)
+    assert fit_max_size(np.zeros((2160, 3840, 3), np.uint8)).shape[:2] == (1080, 1920)
+    assert fit_max_size(np.zeros((600, 800, 3), np.uint8)).shape[:2] == (600, 800)

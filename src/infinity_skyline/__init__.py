@@ -65,8 +65,8 @@ from .compose import (
     chain_homographies,
     compose_panorama,
     pick_reference,
-    stitch_with_opencv,
 )
+from .stitcher import stitch_with_opencv
 from .evaluate import (
     distortion_score,
     inlier_ratio,

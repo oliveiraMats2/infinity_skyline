@@ -22,6 +22,9 @@ logger = get_logger(__name__)
 #: Extensions that only ``rawpy`` can decode (OpenCV and Pillow cannot).
 RAW_EXTENSIONS: frozenset[str] = frozenset({".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf"})
 
+#: Phone formats OpenCV cannot decode; Pillow reads them through pillow-heif.
+HEIC_EXTENSIONS: frozenset[str] = frozenset({".heic", ".heif"})
+
 #: Column order of the serialized keypoint array.
 KEYPOINT_COLUMNS: tuple[str, ...] = ("x", "y", "size", "angle", "response", "octave", "class_id")
 
@@ -51,6 +54,17 @@ def _read_raw(path: Path) -> np.ndarray:
     return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
 
+def _read_heic(path: Path) -> np.ndarray:
+    """Decode a HEIC/HEIF file to an 8-bit BGR array, upright."""
+    from PIL import Image, ImageOps
+    from pillow_heif import register_heif_opener  # lazily, like rawpy
+
+    register_heif_opener()
+    with Image.open(path) as image:
+        rgb = np.asarray(ImageOps.exif_transpose(image).convert("RGB"))
+    return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+
+
 def resize_to_max(image: np.ndarray, max_dimension: int | None) -> np.ndarray:
     """Scale so the longest side is ``max_dimension``. Never upscales."""
     if max_dimension is None:
@@ -72,6 +86,8 @@ def load_image(
     """Read any supported image (RAW included) as BGR, or single-channel if asked."""
     if path.suffix.lower() in RAW_EXTENSIONS:
         image = _read_raw(path)
+    elif path.suffix.lower() in HEIC_EXTENSIONS:
+        image = _read_heic(path)
     else:
         image = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if image is None:

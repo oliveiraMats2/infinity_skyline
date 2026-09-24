@@ -36,8 +36,22 @@ def draw_progressive(
     config: ComposeConfig,
     figures: FiguresConfig,
     run_dir: Path,
+    fast: bool = True,
 ) -> list[Path]:
-    """Compose the first ``k`` images for ``k = 2..len(order)``, one frame each."""
+    """Compose the first ``k`` images for ``k = 2..len(order)``, one frame each.
+
+    ``fast`` drops exposure, seam finding and the extra blends from every step: they
+    are about 75 percent of a run and the steps only have to show the alignment.
+    """
+    if fast:
+        config = config.model_copy(
+            update={
+                "exposure": "none",
+                "save_naive": False,
+                "seam": config.seam.model_copy(update={"finder": "none"}),
+                "blend": config.blend.model_copy(update={"method": "none", "compare": []}),
+            }
+        )
     paths: list[Path] = []
     for k in tqdm(
         range(2, len(order) + 1), desc="progressive panorama", unit="image"

@@ -7,7 +7,16 @@ import networkx as nx
 import numpy as np
 import pytest
 
-from infinity_skyline.compose import chain_homographies, compose_panorama, pick_reference
+from scipy.spatial.transform import Rotation
+
+from infinity_skyline.compose import (
+    _bundle_adjust,
+    _intrinsics,
+    _rotation_from_homography,
+    chain_homographies,
+    compose_panorama,
+    pick_reference,
+)
 from infinity_skyline.config import BlendConfig, ComposeConfig, SeamConfig
 
 #: Horizontal offset between the two crops, in pixels of the source scene.
@@ -133,3 +142,31 @@ def test_canvas_max_too_small_names_the_offending_image() -> None:
     with pytest.raises(ValueError) as excinfo:
         compose_panorama(images, ["left", "right"], graph, config)
     assert any(name in str(excinfo.value) for name in ("left", "right"))
+
+
+def test_bundle_adjust_recovers_rotations_and_focal_from_a_bad_start() -> None:
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    names = ["a", "b", "c", "d", "e"]
+    sources = {name: frame for name in names}
+    truth = {
+        name: Rotation.from_euler("yxz", [yaw, 2.0 * i - 4.0, 1.0 - i], degrees=True).as_matrix()
+        for i, (name, yaw) in enumerate(zip(names, (-50, -25, 0, 25, 50)))
+    }
+    truth["c"] = np.eye(3)
+    k = _intrinsics(500.0, frame).astype(np.float64)
+
+    graph = nx.Graph()
+    for query, train in [("a", "b"), ("b", "c"), ("c", "d"), ("d", "e"), ("a", "c"), ("c", "e")]:
+        exact = k @ truth[train].T @ truth[query] @ np.linalg.inv(k)
+        graph.add_edge(query, train, weight=100, homography=exact, query=query, train=train)
+
+    # A chain gone a few degrees astray per frame, and a focal 20 percent off.
+    rng = np.random.default_rng(0)
+    noise = {name: Rotation.from_rotvec(rng.normal(0.0, 0.03, 3)).as_matrix() for name in names}
+    start = {name: k @ truth[name] @ noise[name] @ np.linalg.inv(k) for name in names}
+    refined, focal = _bundle_adjust(graph, sources, start, "c", 600.0)
+
+    assert abs(focal - 500.0) < 1.0
+    for name in names:
+        rotation = _rotation_from_homography(_intrinsics(focal, frame), refined[name])
+        np.testing.assert_allclose(rotation, truth[name], atol=1e-3)

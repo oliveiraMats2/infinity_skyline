@@ -98,3 +98,11 @@ def test_circular_extends_raises_value_error(tmp_path: Path) -> None:
     _write(tmp_path, "b.yaml", "extends: a.yaml\nrun:\n  seed: 2\n")
     with pytest.raises(ValueError):
         load_config(tmp_path / "a.yaml")
+
+
+def test_override_wins_over_the_file_and_keeps_siblings(tmp_path: Path) -> None:
+    path = _write(tmp_path, "c.yaml", "data:\n  input_dir: a\n  max_dimension: 800\n")
+    config = load_config(path, {"data": {"input_dir": "b"}})
+
+    assert config.data.input_dir == Path("b")
+    assert config.data.max_dimension == 800

@@ -122,8 +122,8 @@ def summarize(frame: pd.DataFrame) -> pd.DataFrame:
 def run_benchmark(config: Config) -> pd.DataFrame:
     """Run every detector x matcher combination and return the long metric table.
 
-    Writes ``results/<run_id>/metrics.csv`` (the long table) and
-    ``results/<run_id>/metrics.md`` (the aggregated summary) when the matching
+    Writes ``artifacts/<run_id>/evaluate_benchmark_metrics.csv`` (the long table) and
+    the aggregated summary as ``.md`` beside it when the matching
     ``config.evaluate.export`` flags are set. Plots are the CLI's business.
     """
     run_dir: Path = config.run_dir()
@@ -173,11 +173,12 @@ def run_benchmark(config: Config) -> pd.DataFrame:
     summary = summarize(full)
     long_table = full.drop(columns=["success"])
 
+    table_path = config.artifact_path("evaluate_benchmark_metrics")
     if config.evaluate.export.csv:
-        long_table.to_csv(run_dir / "metrics.csv", index=False)
-        logger.info("wrote %s", run_dir / "metrics.csv")
+        long_table.to_csv(table_path, index=False)
+        logger.info("wrote %s", table_path)
     if config.evaluate.export.markdown_table:
-        (run_dir / "metrics.md").write_text(summary.to_markdown(index=False), encoding="utf-8")
-        logger.info("wrote %s", run_dir / "metrics.md")
+        table_path.with_suffix(".md").write_text(summary.to_markdown(index=False), encoding="utf-8")
+        logger.info("wrote %s", table_path.with_suffix(".md"))
 
     return long_table

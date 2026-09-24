@@ -1,0 +1,50 @@
+# =============================================================================
+# sweep
+#   python main.py sweep --config configs/sweep_plasma_23_sep_plano.yaml
+#
+# Roda cada config de `configs` pelo `pipeline`, com `override` mesclado por cima
+# de cada uma (merge recursivo, o override vence, como em `extends`). Os arquivos
+# de configs/ nao sao editados: trocar de cena ou de pasta de saida e so aqui.
+# =============================================================================
+
+configs:                      # caminhos ou globs, relativos a raiz do repo
+  - configs/default.yaml
+  - configs/experiments/bundle_off.yaml
+  - configs/experiments/bundle_on.yaml
+  - configs/experiments/det_akaze.yaml
+  - configs/experiments/det_orb.yaml
+  # - configs/experiments/det_sift.yaml               # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/focal_estimated.yaml        # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/focal_exif.yaml             # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/graph_default.yaml          # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/graph_loose.yaml            # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/graph_strict.yaml           # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  - configs/experiments/match_brute_force.yaml
+  # - configs/experiments/match_flann.yaml            # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/proj_cylindrical.yaml       # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  - configs/experiments/proj_planar.yaml
+  - configs/experiments/proj_spherical.yaml
+  # - configs/experiments/ransac_magsac.yaml          # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/ransac_plain.yaml           # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/ref_center.yaml             # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/ref_first.yaml              # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/ref_index.yaml              # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  - configs/experiments/reference_loftr.yaml
+  - configs/experiments/reference_superglue.yaml
+  - configs/experiments/reference_superpoint.yaml
+  # - configs/experiments/sift_vs_orb_vs_akaze.yaml   # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/strategy_all_pairs.yaml     # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/strategy_sequential.yaml    # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/wave_horiz.yaml             # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/wave_none.yaml              # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/wave_vert.yaml              # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # scene_360 fica de fora: com o override de input_dir ela vira identica a bundle_on
+
+resume: true                  # [otimizado 24/09] pula a config cujo panorama.png ja existe: parar e rodar de novo continua de onde parou
+
+override:
+  data:
+    input_dir: data/processed/plasma_23_sep_plano   # saida do convert, nao os HEIC originais
+  run:
+    output_root: /Users/oliveira_mats/plasma_23_sep_plano/results
+    artifacts_root: /Users/oliveira_mats/plasma_23_sep_plano/artifacts

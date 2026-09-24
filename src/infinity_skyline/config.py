@@ -13,8 +13,9 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-DetectorName = Literal["sift", "orb", "akaze"]
-MatcherName = Literal["flann", "brute_force"]
+DetectorName = Literal["sift", "orb", "akaze", "reference_superpoint", "reference_loftr"]
+MatcherName = Literal["flann", "brute_force", "reference_superglue", "reference_loftr"]
+BlendMethod = Literal["multiband", "feather", "linear"]
 
 
 class _Base(BaseModel):
@@ -26,6 +27,7 @@ class _Base(BaseModel):
 class RunConfig(_Base):
     id: str | None = None
     output_root: Path = Path("results")
+    artifacts_root: Path = Path("artifacts")
     seed: int = 42
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     overwrite: bool = False
@@ -109,9 +111,14 @@ class SeamConfig(_Base):
 
 
 class BlendConfig(_Base):
-    method: Literal["multiband", "feather", "none"] = "multiband"
+    method: BlendMethod | Literal["none"] = "multiband"
     bands: int = Field(default=5, ge=1)
     sharpness: float = Field(default=0.02, gt=0.0)
+    # One extra panorama per method listed, blended from the same seams, so the
+    # techniques are compared on identical geometry. Empty = only `method`.
+    compare: list[BlendMethod] = Field(
+        default_factory=lambda: ["feather", "linear", "multiband"]
+    )
 
 
 class ComposeConfig(_Base):
@@ -127,6 +134,9 @@ class ComposeConfig(_Base):
     # Levels the horizon by sending the accumulated roll back to zero. Only the non
     # planar projections build rotations, so it does nothing under "planar".
     wave_correct: Literal["horiz", "vert", "none"] = "horiz"
+    # Refine every rotation and the focal jointly over all graph edges instead of
+    # trusting the pairwise chain alone; closes the loop of a 360 degree sweep.
+    bundle_adjust: bool = False
     canvas_max: int = Field(default=12000, ge=1)
     seam: SeamConfig = Field(default_factory=SeamConfig)
     blend: BlendConfig = Field(default_factory=BlendConfig)
@@ -183,10 +193,17 @@ class FiguresConfig(_Base):
         return directory / f"{name}.{self.format}"
 
 
+class VisualizeProgressive(_Base):
+    # The progressive steps show the alignment, not the seam: without graph cut and
+    # exposure each step is a plain overlay, and the final panorama keeps both.
+    fast: bool = True
+
+
 class VisualizeConfig(_Base):
     keypoints: VisualizeKeypoints = Field(default_factory=VisualizeKeypoints)
     matches: VisualizeMatches = Field(default_factory=VisualizeMatches)
     graph: VisualizeGraph = Field(default_factory=VisualizeGraph)
+    progressive: VisualizeProgressive = Field(default_factory=VisualizeProgressive)
     figures: FiguresConfig = Field(default_factory=FiguresConfig)
 
 
@@ -203,6 +220,17 @@ class Config(_Base):
     visualize: VisualizeConfig = Field(default_factory=VisualizeConfig)
 
     @model_validator(mode="after")
+    def _learned_pairs(self) -> "Config":
+        detector, matcher = self.detection.name, self.matching.name
+        if matcher == "reference_superglue" and detector != "reference_superpoint":
+            raise ValueError("matching.name reference_superglue needs detection.name reference_superpoint")
+        if (matcher == "reference_loftr") != (detector == "reference_loftr"):
+            raise ValueError(
+                "reference_loftr is detector free: set it as both detection.name and matching.name"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _binary_descriptors_need_lsh(self) -> "Config":
         if self.geometry.model == "fundamental" and self.compose.seam.finder != "none":
             raise ValueError(
@@ -215,6 +243,13 @@ class Config(_Base):
         """``results/<run_id>/`` for this config. Caller creates it."""
         assert self.run.id is not None, "run.id must be resolved before run_dir()"
         return self.run.output_root / self.run.id
+
+    def artifact_path(self, name: str) -> Path:
+        """``artifacts/<run_id>/<name>.csv``: the one place every table is written to."""
+        assert self.run.id is not None, "run.id must be resolved before artifact_path()"
+        directory = self.run.artifacts_root / self.run.id
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory / f"{name}.csv"
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -242,9 +277,13 @@ def load_raw(path: Path, _seen: frozenset[Path] = frozenset()) -> dict[str, Any]
     return _deep_merge(parent, data)
 
 
-def load_config(path: Path | str) -> Config:
-    """Parse and validate a YAML config into a :class:`Config`."""
-    return Config.model_validate(load_raw(Path(path)))
+def load_config(path: Path | str, override: dict[str, Any] | None = None) -> Config:
+    """Parse and validate a YAML config into a :class:`Config`.
+
+    ``override`` is merged on top the same way a child merges over ``extends``, so a
+    sweep can point every config at another scene without editing the files.
+    """
+    return Config.model_validate(_deep_merge(load_raw(Path(path)), override or {}))
 
 
 def dump_config(config: Config, path: Path, extra: dict[str, Any] | None = None) -> None:

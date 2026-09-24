@@ -1,0 +1,27 @@
+# =============================================================================
+# sweep
+#   python main.py sweep --config configs/sweep_360_plasma_images.yaml
+#
+# Roda cada config de `configs` pelo `pipeline`, com `override` mesclado por cima
+# de cada uma (merge recursivo, o override vence, como em `extends`). Os arquivos
+# de configs/ nao sao editados: trocar de cena ou de pasta de saida e so aqui.
+# =============================================================================
+
+configs:                      # caminhos ou globs, relativos a raiz do repo
+  - configs/default.yaml                          # cilindrica
+  - configs/experiments/proj_spherical.yaml       # esferica
+  - configs/experiments/reference_superpoint.yaml
+  - configs/experiments/reference_superglue.yaml
+  - configs/experiments/reference_loftr.yaml
+  # sem bundle_off: o override liga o ajuste global em todas, porque e ele que fecha o laco do 360
+
+resume: true                  # [otimizado 24/09] pula a config cujo panorama.png ja existe: parar e rodar de novo continua de onde parou
+
+override:
+  data:
+    input_dir: data/processed/360_plasma_images   # saida do convert, nao os HEIC originais
+  compose:
+    bundle_adjust: true
+  run:
+    output_root: /Users/oliveira_mats/360_plasma_images/results
+    artifacts_root: /Users/oliveira_mats/360_plasma_images/artifacts
