@@ -73,7 +73,7 @@ def plot_benchmark(frame: pd.DataFrame, figures: FiguresConfig, run_dir: Path) -
         grouped["detect_time_ms"].mean().plot(
             kind="bar", yerr=errors, capsize=4, ax=axes, color="#4c72b0", rot=0
         )
-        axes.set_title("Tempo medio de deteccao por detector")
+        axes.set_title("Mean detection time per detector")
         axes.set_ylabel("ms")
         axes.set_xlabel("detector")
         _save(figure, figures, run_dir, "detect_time", paths)
@@ -84,7 +84,7 @@ def plot_benchmark(frame: pd.DataFrame, figures: FiguresConfig, run_dir: Path) -
         )
         figure, axes = plt.subplots(figsize=(8, 5))
         pivot.plot(kind="bar", ax=axes, rot=0)
-        axes.set_title("Tempo medio de matching por detector e matcher")
+        axes.set_title("Mean matching time per detector and matcher")
         axes.set_ylabel("ms")
         axes.set_xlabel("detector")
         axes.legend(title="matcher")
@@ -94,10 +94,10 @@ def plot_benchmark(frame: pd.DataFrame, figures: FiguresConfig, run_dir: Path) -
         grouped = frame.groupby("detector")
         figure, (left, right) = plt.subplots(1, 2, figsize=(11, 5))
         grouped["n_keypoints"].mean().plot(kind="bar", ax=left, color="#55a868", rot=0)
-        left.set_title("Keypoints por imagem")
-        left.set_ylabel("quantidade")
+        left.set_title("Keypoints per image")
+        left.set_ylabel("count")
         grouped["descriptor_bytes"].mean().plot(kind="bar", ax=right, color="#c44e52", rot=0)
-        right.set_title("Bytes por descritor")
+        right.set_title("Bytes per descriptor")
         right.set_ylabel("bytes")
         _save(figure, figures, run_dir, "keypoints_cost", paths)
 
@@ -107,8 +107,8 @@ def plot_benchmark(frame: pd.DataFrame, figures: FiguresConfig, run_dir: Path) -
         axes.boxplot([series.to_numpy() for _, series in groups])
         axes.set_xticks(range(1, len(groups) + 1))
         axes.set_xticklabels([f"{det}\n{mat}" for (det, mat), _ in groups], fontsize=8)
-        axes.set_title("Razao de inliers por detector e matcher")
-        axes.set_ylabel("inliers / matches filtrados")
+        axes.set_title("Inlier ratio per detector and matcher")
+        axes.set_ylabel("inliers / filtered matches")
         _save(figure, figures, run_dir, "inlier_ratio_box", paths)
 
     if _has(frame, ("detector", "matcher", "reprojection_rmse"), "reprojection_rmse"):
@@ -117,7 +117,7 @@ def plot_benchmark(frame: pd.DataFrame, figures: FiguresConfig, run_dir: Path) -
         )
         figure, axes = plt.subplots(figsize=(8, 5))
         pivot.plot(kind="bar", ax=axes, rot=0)
-        axes.set_title("RMSE de reprojecao medio")
+        axes.set_title("Mean reprojection RMSE")
         axes.set_ylabel("pixels")
         axes.legend(title="matcher")
         _save(figure, figures, run_dir, "reprojection_rmse", paths)
@@ -128,8 +128,8 @@ def plot_benchmark(frame: pd.DataFrame, figures: FiguresConfig, run_dir: Path) -
             axes.scatter(
                 subset["filtered_matches"], subset["n_inliers"], label=str(name), alpha=0.7
             )
-        axes.set_title("Matches filtrados versus inliers")
-        axes.set_xlabel("matches filtrados")
+        axes.set_title("Filtered matches versus inliers")
+        axes.set_xlabel("filtered matches")
         axes.set_ylabel("inliers")
         axes.legend(title="detector")
         _save(figure, figures, run_dir, "matches_vs_inliers", paths)

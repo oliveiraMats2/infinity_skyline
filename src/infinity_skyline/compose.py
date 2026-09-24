@@ -219,8 +219,24 @@ def _check_canvas(
     width: int,
     height: int,
     canvas_max: int,
+    max_megapixels: float,
 ) -> None:
-    """Refuse to allocate a canvas blown up by a degenerate homography."""
+    """Refuse to allocate a canvas blown up by a degenerate homography, or one too big
+    for memory.
+
+    The megapixel budget exists because the operating system kills a process that runs
+    out of memory without any traceback, which takes a whole sweep down with it. A
+    wide sweep in planar projection reached 13021x6774 px (88 MP) and was killed on a
+    24 GB machine; raising here instead fails only that config.
+    """
+    megapixels = width * height / 1e6
+    if megapixels > max_megapixels:
+        raise ValueError(
+            f"the canvas would be {width}x{height} px ({megapixels:.0f} MP), past "
+            f"compose.canvas_max_megapixels={max_megapixels:g}: composing it would run "
+            f"out of memory. A wide sweep in planar projection does this; use "
+            f"compose.projection cylindrical or spherical"
+        )
     if width <= canvas_max and height <= canvas_max and width > 0 and height > 0:
         return
     worst = max(range(len(rois)), key=lambda i: max(rois[i][2], rois[i][3]))
@@ -248,6 +264,7 @@ def _warp_planar(
     names: Sequence[str],
     homographies: Mapping[str, np.ndarray],
     canvas_max: int,
+    max_megapixels: float,
 ) -> tuple[list[Tile], int, int]:
     """Plain perspective warp of every source into the reference plane."""
     rois: list[tuple[int, int, int, int]] = []
@@ -263,7 +280,7 @@ def _warp_planar(
         rois.append((int(low[0]), int(low[1]), int(high[0] - low[0]), int(high[1] - low[1])))
 
     shifted, width, height = _normalize_rois(rois)
-    _check_canvas(names, shifted, width, height, canvas_max)
+    _check_canvas(names, shifted, width, height, canvas_max, max_megapixels)
 
     offset_x = min(x for x, _, _, _ in rois)
     offset_y = min(y for _, y, _, _ in rois)
@@ -551,6 +568,7 @@ def _warp_rotation(
     projection: str,
     focal: float,
     canvas_max: int,
+    max_megapixels: float,
     wave_correct: str,
 ) -> tuple[list[Tile], int, int]:
     """Warp onto a cylinder or a sphere with ``cv2.PyRotationWarper``."""
@@ -572,7 +590,7 @@ def _warp_rotation(
         rois.append((int(x), int(y), int(roi_w), int(roi_h)))
 
     shifted, canvas_w, canvas_h = _normalize_rois(rois)
-    _check_canvas(names, shifted, canvas_w, canvas_h, canvas_max)
+    _check_canvas(names, shifted, canvas_w, canvas_h, canvas_max, max_megapixels)
 
     tiles: list[Tile] = []
     for name, intrinsics, rotation, (x, y, _, _) in tqdm(
@@ -809,7 +827,7 @@ def compose_panorama(
         try:
             tiles, canvas_w, canvas_h = _warp_rotation(
                 sources, names, homographies, config.projection, focal,
-                config.canvas_max, config.wave_correct,
+                config.canvas_max, config.canvas_max_megapixels, config.wave_correct,
             )
         except (cv2.error, RuntimeError, np.linalg.LinAlgError) as exc:
             # The rotation warper is an approximation here: without bundle_adjust
@@ -823,7 +841,7 @@ def compose_panorama(
             tiles = None
     if tiles is None:
         tiles, canvas_w, canvas_h = _warp_planar(
-            sources, names, homographies, config.canvas_max
+            sources, names, homographies, config.canvas_max, config.canvas_max_megapixels
         )
     logger.info("canvas: %dx%d px from %d warped images", canvas_w, canvas_h, len(tiles))
 

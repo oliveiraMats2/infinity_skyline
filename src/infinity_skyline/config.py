@@ -156,6 +156,9 @@ class ComposeConfig(_Base):
     # trusting the pairwise chain alone; closes the loop of a 360 degree sweep.
     bundle_adjust: bool = False
     canvas_max: int = Field(default=12000, ge=1)
+    # Pixel budget of the canvas. Past it the config fails with a clear error instead
+    # of the operating system killing the process, and the whole sweep, for memory.
+    canvas_max_megapixels: float = Field(default=40.0, gt=0.0)
     seam: SeamConfig = Field(default_factory=SeamConfig)
     blend: BlendConfig = Field(default_factory=BlendConfig)
     exposure: Literal["none", "gain", "gain_blocks"] = "gain_blocks"

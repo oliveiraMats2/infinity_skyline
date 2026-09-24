@@ -375,6 +375,39 @@ about a second and a half on this scene.
 
 ---
 
+## 9. A memory budget on the canvas (`compose.canvas_max_megapixels`)
+
+**Status:** limit in place since 24/09, set to 40 MP in every config.
+
+**What happened.** `proj_planar` over `plasma_23_sep_plano`, an 18 frame sweep of about
+180 degrees, laid out a 13021x6774 px canvas, 88 megapixels. The same frames in
+cylindrical projection make 3041x1272. Exposure compensation, the graph cut seam, the
+naive average and the three compared blends all hold canvas sized buffers at once, and
+together they passed the 24 GB of the machine. The operating system killed the process
+with SIGKILL: no traceback, no line in `run.log`, only `killed` in the terminal. It sat
+for about 20 minutes swapping before that, so it first looked like a hang.
+
+**Why it mattered beyond one config.** A killed process cannot catch anything, so the
+whole `sweep` died with it and every config after `proj_planar` never ran.
+`compose.canvas_max` did not help: it bounds each side at 20000 px, and 13021x6774
+passes it.
+
+**The limit.** `_check_canvas` now also refuses a canvas past
+`compose.canvas_max_megapixels`, before any tile is warped. The config fails with a
+`ValueError` that names the size and suggests a cylindrical or spherical projection, the
+sweep reports it as failed and moves on, and `resume` retries it on the next run.
+
+**Choosing the value.** 40 MP is about half of what was killed on 24 GB, and far above
+any legitimate mosaic seen so far: the cylindrical 180 degree scenes are about 4 MP and
+a 47 frame 360 degree sweep should be about 10 MP. On a machine with more memory it can
+go up; on a smaller one it should go down.
+
+**What it means for planar.** A planar mosaic of a wide sweep now fails by design.
+That is the expected behaviour and not a regression, since planar projection diverges
+past 90 degrees from the reference (item 1): use it on narrow sectors only.
+
+---
+
 ## Smaller observations
 
 **`infer_order` transposes locally on densely connected graphs.** On the 25 image

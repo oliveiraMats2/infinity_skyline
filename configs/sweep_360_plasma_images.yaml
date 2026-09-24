@@ -2,24 +2,24 @@
 # sweep
 #   python main.py sweep --config configs/sweep_360_plasma_images.yaml
 #
-# Roda cada config de `configs` pelo `pipeline`, com `override` mesclado por cima
-# de cada uma (merge recursivo, o override vence, como em `extends`). Os arquivos
-# de configs/ nao sao editados: trocar de cena ou de pasta de saida e so aqui.
+# Runs each config in `configs` through `pipeline`, with `override` merged on top
+# of each one (recursive merge, the override wins, as in `extends`). The files
+# in configs/ are not edited: switching scene or output folder happens only here.
 # =============================================================================
 
-configs:                      # caminhos ou globs, relativos a raiz do repo
-  - configs/default.yaml                          # cilindrica
-  - configs/experiments/proj_spherical.yaml       # esferica
+configs:                      # paths or globs, relative to the repo root
+  - configs/default.yaml                          # cylindrical
+  - configs/experiments/proj_spherical.yaml       # spherical
   - configs/experiments/reference_superpoint.yaml
   - configs/experiments/reference_superglue.yaml
   - configs/experiments/reference_loftr.yaml
-  # sem bundle_off: o override liga o ajuste global em todas, porque e ele que fecha o laco do 360
+  # no bundle_off: the override turns global adjustment on for all, since that is what closes the 360 loop
 
-resume: true                  # [otimizado 24/09] pula so a config que terminou (results/<config>/pipeline.done); a interrompida e refeita inteira
+resume: true                  # [optimized 24/09] skips only configs that finished (results/<config>/pipeline.done); an interrupted one is redone in full
 
 override:
   data:
-    input_dir: data/processed/360_plasma_images   # saida do convert, nao os HEIC originais
+    input_dir: data/processed/360_plasma_images   # output of convert, not the original HEICs
   compose:
     bundle_adjust: true
   run:

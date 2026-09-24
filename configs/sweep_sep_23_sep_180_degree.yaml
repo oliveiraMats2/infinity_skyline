@@ -2,12 +2,12 @@
 # sweep
 #   python main.py sweep --config configs/sweep_sep_23_sep_180_degree.yaml
 #
-# Roda cada config de `configs` pelo `pipeline`, com `override` mesclado por cima
-# de cada uma (merge recursivo, o override vence, como em `extends`). Os arquivos
-# de configs/ nao sao editados: trocar de cena ou de pasta de saida e so aqui.
+# Runs each config in `configs` through `pipeline`, with `override` merged on top
+# of each one (recursive merge, the override wins, as in `extends`). The files
+# in configs/ are not edited: switching scene or output folder happens only here.
 # =============================================================================
 
-configs:                      # caminhos ou globs, relativos a raiz do repo
+configs:                      # paths or globs, relative to the repo root
   - configs/default.yaml
   - configs/experiments/bundle_off.yaml
   - configs/experiments/bundle_on.yaml
@@ -38,12 +38,12 @@ configs:                      # caminhos ou globs, relativos a raiz do repo
   - configs/experiments/wave_horiz.yaml
   - configs/experiments/wave_none.yaml
   - configs/experiments/wave_vert.yaml
-  # scene_360 fica de fora: a cena e de 180 graus, e com o override de
-  # input_dir ela vira identica a bundle_on (a unica diferenca era a pasta)
+  # scene_360 left out: the scene is 180 degrees, and with the override of
+  # input_dir it becomes identical to bundle_on (the only difference was the folder)
 
 override:
   data:
-    input_dir: data/processed/sep_23_sep_180_degree   # saida do convert, nao os HEIC originais
+    input_dir: data/processed/sep_23_sep_180_degree   # output of convert, not the original HEICs
   run:
     output_root: /Users/oliveira_mats/sep_23_sep_180_degree/results
     artifacts_root: /Users/oliveira_mats/sep_23_sep_180_degree/artifacts

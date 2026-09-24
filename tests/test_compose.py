@@ -188,3 +188,11 @@ def test_bundle_adjust_recovers_rotations_and_focal_from_a_bad_start() -> None:
     for name in names:
         rotation = _rotation_from_homography(_intrinsics(focal, frame), refined[name])
         np.testing.assert_allclose(rotation, truth[name], atol=1e-3)
+
+
+def test_canvas_past_the_megapixel_budget_fails_instead_of_running_out_of_memory() -> None:
+    from infinity_skyline.compose import _check_canvas
+
+    with pytest.raises(ValueError, match="canvas_max_megapixels"):
+        _check_canvas(["a"], [(0, 0, 13021, 6774)], 13021, 6774, 20000, 40.0)
+    _check_canvas(["a"], [(0, 0, 3041, 1272)], 3041, 1272, 20000, 40.0)

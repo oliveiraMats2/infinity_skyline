@@ -138,17 +138,17 @@ def draw_graph(
         )
 
     axes.set_title(
-        f"Grafo de conectividade ({len(nodes)} imagens, {len(weights)} arestas, "
-        f"{len(rejected_set)} rejeitada(s))"
+        f"Connectivity graph ({len(nodes)} images, {len(weights)} edges, "
+        f"{len(rejected_set)} rejected)"
     )
     axes.legend(
         handles=[
             Line2D([], [], marker="o", linestyle="", markersize=11,
                    markerfacecolor=ACCEPTED_COLOR, markeredgecolor="white",
-                   label="aceita (componente principal)"),
+                   label="accepted (main component)"),
             Line2D([], [], marker="o", linestyle="", markersize=11,
                    markerfacecolor=REJECTED_COLOR, markeredgecolor="black",
-                   label="rejeitada (fora da componente principal)"),
+                   label="rejected (outside the main component)"),
         ],
         loc="lower center",
         ncol=2,
@@ -202,7 +202,7 @@ def save_graph_figures(
                     j, i, str(matrix[i, j]), ha="center", va="center", fontsize=6,
                     color="white" if matrix[i, j] < half else "black",
                 )
-    axes.set_title("Matriz de conectividade (* = rejeitada)")
+    axes.set_title("Connectivity matrix (* = rejected)")
     figure.tight_layout()
     matrix_path = config.figures.path(run_dir, "graph", "connectivity")
     figure.savefig(matrix_path, dpi=config.figures.dpi)
@@ -218,9 +218,9 @@ def save_graph_figures(
 
     figure, axes = plt.subplots(figsize=(8, 5))
     axes.hist(weights, bins=min(20, len(set(weights))), color=ACCEPTED_COLOR, edgecolor="white")
-    axes.set_xlabel("Inliers por aresta")
-    axes.set_ylabel("Numero de arestas")
-    axes.set_title(f"Distribuicao do peso das arestas ({len(weights)} arestas)")
+    axes.set_xlabel("Inliers per edge")
+    axes.set_ylabel("Number of edges")
+    axes.set_title(f"Edge weight distribution ({len(weights)} edges)")
     figure.tight_layout()
     weights_path = config.figures.path(run_dir, "graph", "edge_weights")
     figure.savefig(weights_path, dpi=config.figures.dpi)

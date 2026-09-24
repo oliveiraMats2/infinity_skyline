@@ -111,7 +111,7 @@ def save_detection_figure(
 
     figure, axes = plt.subplots(1, 4, figsize=(20, 5))
     axes[0].imshow(rgb)
-    axes[0].set_title("Imagem")
+    axes[0].set_title("Image")
     # Symmetric log: R spans orders of magnitude and its sign separates corners
     # (positive) from edges (negative), so a linear map shows only the top peaks.
     peak = float(np.abs(response).max()) or 1.0
@@ -120,20 +120,20 @@ def save_detection_figure(
         cmap="RdBu_r",
         norm=matplotlib.colors.SymLogNorm(linthresh=peak * 1e-4, vmin=-peak, vmax=peak),
     )
-    axes[1].set_title("Resposta R (Harris)")
+    axes[1].set_title("Response R (Harris)")
     figure.colorbar(mesh, ax=axes[1], fraction=0.046)
     axes[2].imshow(rgb)
     axes[2].plot(xs, ys, "r+", markersize=4)
-    axes[2].set_title(f"Cantos ({len(xs)})")
+    axes[2].set_title(f"Corners ({len(xs)})")
     if record.n_keypoints:
         axes[3].imshow(cv2.cvtColor(draw_keypoints(image, record, config), cv2.COLOR_BGR2RGB))
     else:
         axes[3].imshow(rgb)
         axes[3].text(
-            0.5, 0.5, "sem keypoints (metodo sem detector)", transform=axes[3].transAxes,
+            0.5, 0.5, "no keypoints (method without a detector)", transform=axes[3].transAxes,
             ha="center", color="white", backgroundcolor="black",
         )
-    axes[3].set_title(f"Keypoints multiescala ({record.detector}, {record.n_keypoints})")
+    axes[3].set_title(f"Multiscale keypoints ({record.detector}, {record.n_keypoints})")
     for axis in axes:
         axis.set_axis_off()
     figure.tight_layout()
@@ -179,33 +179,33 @@ def save_keypoint_figures(
 
     figure, (response, scale, density) = plt.subplots(1, 3, figsize=(15, 4.5))
     response.hist(pooled[:, _RESPONSE_COLUMN], bins=50, color="#4c72b0")
-    response.set_title("Resposta dos keypoints")
+    response.set_title("Keypoint response")
     response.set_xlabel("response")
-    response.set_ylabel("contagem")
+    response.set_ylabel("count")
 
     scale.hist(pooled[:, _SIZE_COLUMN], bins=50, color="#55a868")
-    scale.set_title("Escala dos keypoints")
+    scale.set_title("Keypoint scale")
     scale.set_xlabel("size (px)")
     # Log count: the scale distribution is dominated by the smallest octave, and on
     # a linear axis the coarse keypoints that carry the wide baseline matches sit at
     # a few counts each and are simply invisible next to a bar of 17000.
     scale.set_yscale("log")
-    scale.set_ylabel("contagem (log)")
+    scale.set_ylabel("count (log)")
 
     counts, _, _ = np.histogram2d(
         normalized[:, 0], normalized[:, 1], bins=_DENSITY_BINS, range=[[0.0, 1.0], [0.0, 1.0]]
     )
     # Transposed and with y running downwards, so the map reads like the image does.
     mesh = density.imshow(counts.T, origin="upper", extent=(0.0, 1.0, 1.0, 0.0), cmap="viridis")
-    density.set_title("Densidade espacial")
-    density.set_xlabel("x / largura")
-    density.set_ylabel("y / altura")
-    figure.colorbar(mesh, ax=density, label="keypoints por celula")
+    density.set_title("Spatial density")
+    density.set_xlabel("x / width")
+    density.set_ylabel("y / height")
+    figure.colorbar(mesh, ax=density, label="keypoints per cell")
 
     detectors = ", ".join(sorted({record.detector for record in populated}))
     figure.suptitle(
-        f"Distribuicao dos keypoints: {detectors} "
-        f"({pooled.shape[0]} keypoints em {len(populated)} imagens)"
+        f"Keypoint distribution: {detectors} "
+        f"({pooled.shape[0]} keypoints in {len(populated)} images)"
     )
     figure.tight_layout()
     path = config.figures.path(run_dir, "keypoints", "distribution")

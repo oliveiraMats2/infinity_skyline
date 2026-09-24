@@ -145,8 +145,8 @@ def save_panorama_figures(
     box = (x, y, w, h)
 
     zoom = max(_MIN_ZOOM, int(round(_TARGET_CROP_PIXELS / max(w, h))))
-    left = _labelled_crop(naive, box, "sem deghosting", zoom)
-    right = _labelled_crop(panorama, box, "com deghosting", zoom)
+    left = _labelled_crop(naive, box, "without deghosting", zoom)
+    right = _labelled_crop(panorama, box, "with deghosting", zoom)
     separator = np.full((left.shape[0], _SEPARATOR_WIDTH, 3), 255, dtype=left.dtype)
     comparison_path = figures.path(run_dir, "panorama", "deghosting")
     save_image(comparison_path, np.hstack([left, separator, right]))
@@ -154,9 +154,9 @@ def save_panorama_figures(
 
     figure, axes = plt.subplots(figsize=(11, 6))
     heat = axes.imshow(difference, cmap="inferno")
-    figure.colorbar(heat, ax=axes, label="|panorama - media ingenua|")
+    figure.colorbar(heat, ax=axes, label="|panorama - naive average|")
     axes.add_patch(Rectangle((x, y), w, h, fill=False, edgecolor="#39ff14", linewidth=2))
-    axes.set_title("Diferenca absoluta entre o panorama e a media ingenua")
+    axes.set_title("Absolute difference between the panorama and the naive average")
     axes.set_axis_off()
     figure.tight_layout()
     difference_path = figures.path(run_dir, "panorama", "difference")

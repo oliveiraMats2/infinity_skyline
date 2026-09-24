@@ -2,49 +2,49 @@
 # sweep
 #   python main.py sweep --config configs/sweep_plasma_180_degree.yaml
 #
-# Roda cada config de `configs` pelo `pipeline`, com `override` mesclado por cima
-# de cada uma (merge recursivo, o override vence, como em `extends`). Os arquivos
-# de configs/ nao sao editados: trocar de cena ou de pasta de saida e so aqui.
+# Runs each config in `configs` through `pipeline`, with `override` merged on top
+# of each one (recursive merge, the override wins, as in `extends`). The files
+# in configs/ are not edited: switching scene or output folder happens only here.
 # =============================================================================
 
-configs:                      # caminhos ou globs, relativos a raiz do repo
+configs:                      # paths or globs, relative to the repo root
   - configs/default.yaml
   - configs/experiments/bundle_off.yaml
   - configs/experiments/bundle_on.yaml
   - configs/experiments/det_akaze.yaml
   - configs/experiments/det_orb.yaml
-  # - configs/experiments/det_sift.yaml               # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/focal_estimated.yaml        # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/focal_exif.yaml             # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/graph_default.yaml          # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/graph_loose.yaml            # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/graph_strict.yaml           # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/det_sift.yaml               # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/focal_estimated.yaml        # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/focal_exif.yaml             # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/graph_default.yaml          # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/graph_loose.yaml            # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/graph_strict.yaml           # [optimized 24/09] left out: exploratory axis, answers no report item
   - configs/experiments/match_brute_force.yaml
-  # - configs/experiments/match_flann.yaml            # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/proj_cylindrical.yaml       # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/match_flann.yaml            # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/proj_cylindrical.yaml       # [optimized 24/09] left out: exploratory axis, answers no report item
   - configs/experiments/proj_planar.yaml
   - configs/experiments/proj_spherical.yaml
-  # - configs/experiments/ransac_magsac.yaml          # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/ransac_plain.yaml           # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/ref_center.yaml             # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/ref_first.yaml              # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/ref_index.yaml              # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
+  # - configs/experiments/ransac_magsac.yaml          # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/ransac_plain.yaml           # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/ref_center.yaml             # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/ref_first.yaml              # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/ref_index.yaml              # [optimized 24/09] left out: exploratory axis, answers no report item
   - configs/experiments/reference_loftr.yaml
   - configs/experiments/reference_superglue.yaml
   - configs/experiments/reference_superpoint.yaml
-  # - configs/experiments/sift_vs_orb_vs_akaze.yaml   # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/strategy_all_pairs.yaml     # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/strategy_sequential.yaml    # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/wave_horiz.yaml             # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/wave_none.yaml              # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # - configs/experiments/wave_vert.yaml              # [otimizado 24/09] fora: eixo exploratorio, nao responde a item do relatorio
-  # scene_360 fica de fora: com o override de input_dir ela vira identica a bundle_on
+  # - configs/experiments/sift_vs_orb_vs_akaze.yaml   # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/strategy_all_pairs.yaml     # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/strategy_sequential.yaml    # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/wave_horiz.yaml             # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/wave_none.yaml              # [optimized 24/09] left out: exploratory axis, answers no report item
+  # - configs/experiments/wave_vert.yaml              # [optimized 24/09] left out: exploratory axis, answers no report item
+  # scene_360 left out: with the input_dir override it becomes identical to bundle_on
 
-resume: true                  # [otimizado 24/09] pula so a config que terminou (results/<config>/pipeline.done); a interrompida e refeita inteira
+resume: true                  # [optimized 24/09] skips only configs that finished (results/<config>/pipeline.done); an interrupted one is redone in full
 
 override:
   data:
-    input_dir: data/processed/plasma_180_degree   # saida do convert, nao os HEIC originais
+    input_dir: data/processed/plasma_180_degree   # output of convert, not the original HEICs
   run:
     output_root: /Users/oliveira_mats/plasma_180_degree/results
     artifacts_root: /Users/oliveira_mats/plasma_180_degree/artifacts

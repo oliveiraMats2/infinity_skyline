@@ -491,12 +491,12 @@ def sweep(
             config = load_config(config_path, override)
             done = config.run.output_root / (config.run.id or name) / DONE_MARKER
             if done.exists():
-                rows.append((name, "pulado", f"already done: {done}"))
+                rows.append((name, "skipped", f"already done: {done}"))
                 continue
         try:
             run_dir = _pipeline(*_prepare(config_path, override))
         except Exception as exc:  # a sweep must survive its own failures
-            rows.append((name, "FALHOU", f"{type(exc).__name__}: {exc}"))
+            rows.append((name, "FAILED", f"{type(exc).__name__}: {exc}"))
             logger.warning("%s failed: %s", name, exc)
             continue
         image = cv2.imread(str(run_dir / "panorama" / "panorama.png"))
@@ -507,7 +507,7 @@ def sweep(
     typer.echo("")
     for name, status, detail in rows:
         typer.echo(f"{name:<{width}}  {status:<7}  {detail}")
-    ok = sum(1 for _, status, _ in rows if status in ("ok", "pulado"))
+    ok = sum(1 for _, status, _ in rows if status in ("ok", "skipped"))
     typer.echo(f"\n{ok} of {len(rows)} composed a panorama.")
 
 

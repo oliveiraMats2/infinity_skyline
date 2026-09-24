@@ -179,10 +179,10 @@ def _distance_hist(
     axes.hist(dropped, bins=bins, color=_OUTLIER_HEX, alpha=0.6, label="outliers")
     axes.hist(kept, bins=bins, color=_INLIER_HEX, alpha=0.6, label="inliers")
     axes.set_title(
-        f"Distancia dos descritores ({kept.size} inliers, {dropped.size} outliers)"
+        f"Descriptor distance ({kept.size} inliers, {dropped.size} outliers)"
     )
-    axes.set_xlabel("distancia")
-    axes.set_ylabel("contagem")
+    axes.set_xlabel("distance")
+    axes.set_ylabel("count")
     axes.legend()
     figure.tight_layout()
     path = config.figures.path(run_dir, "matches", "distance_hist")
@@ -219,7 +219,7 @@ def _inlier_matrix(
                     j, i, str(int(counts[i, j])),
                     ha="center", va="center", fontsize=7, color="white",
                 )
-    axes.set_title(f"Inliers por par ({len(names)} imagens)")
+    axes.set_title(f"Inliers per pair ({len(names)} images)")
     figure.tight_layout()
     path = config.figures.path(run_dir, "matches", "inlier_matrix")
     figure.savefig(path, dpi=config.figures.dpi)

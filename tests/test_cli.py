@@ -43,5 +43,5 @@ def test_resume_skips_only_finished_runs(tmp_path: Path) -> None:
 
     output = CliRunner().invoke(app, ["sweep", "--config", str(sweep)]).output
 
-    assert "finished  pulado" in output
-    assert "stopped   FALHOU" in output  # it tried again, and there are no images
+    assert "finished  skipped" in output
+    assert "stopped   FAILED" in output  # it tried again, and there are no images
