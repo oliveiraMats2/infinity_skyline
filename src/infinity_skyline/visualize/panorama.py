@@ -58,14 +58,15 @@ def draw_progressive(
 ) -> list[Path]:
     """Compose the first ``k`` images for ``k = 2..len(order)``, one frame each.
 
-    ``fast`` drops exposure, seam finding and the extra blends from every step: they
-    are about 75 percent of a run and the steps only have to show the alignment.
+    ``fast`` drops exposure, seam finding, bundle adjustment and the extra blends from
+    every step: they are most of a run, and the steps only have to show the alignment.
     """
     if fast:
         config = config.model_copy(
             update={
                 "exposure": "none",
                 "save_naive": False,
+                "bundle_adjust": False,
                 "seam": config.seam.model_copy(update={"finder": "none"}),
                 "blend": config.blend.model_copy(update={"method": "none", "compare": []}),
             }

@@ -1,0 +1,20 @@
+# =============================================================================
+# sweep
+#   python main.py sweep --config configs/sweep_plasma_3500_3515.yaml
+#
+# The second sequence found inside 360_plasma_images (IMG_3500 to IMG_3515): darker,
+# other buildings, and not part of the 360 degree loop (see future_works.md item 10).
+# One flat panorama of it, with every figure and table of the default config.
+# =============================================================================
+
+configs:                      # paths or globs, relative to the repo root
+  - configs/default.yaml
+
+resume: true                  # [optimized 24/09] skips only a config that finished (results/<config>/pipeline.done); an interrupted one is redone in full
+
+override:
+  data:
+    input_dir: data/processed/plasma_3500_3515   # PNG output of convert, not the HEIC originals
+  run:
+    output_root: /Users/oliveira_mats/plasma_3500_3515/results
+    artifacts_root: /Users/oliveira_mats/plasma_3500_3515/artifacts

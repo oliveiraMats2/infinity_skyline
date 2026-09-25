@@ -20,6 +20,8 @@ resume: true                  # [optimized 24/09] skips only configs that finish
 override:
   data:
     input_dir: data/processed/360_plasma_images   # output of convert, not the original HEICs
+  graph:
+    min_inliers: 100             # [360 fix 24/09] true neighbours share 304+ inliers, false matches on repeated buildings 31-56: at 30 they glued a second sequence (3500-3515) to the loop and folded the order; see future_works.md item 10
   compose:
     bundle_adjust: true
     save_equirectangular: true   # 360 only: panorama_equirectangular.jpg (2:1, GPano XMP) opens in 3D in Spherical Viewer

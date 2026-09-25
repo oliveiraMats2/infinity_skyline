@@ -446,6 +446,10 @@ def _intrinsics(focal: float, image: np.ndarray) -> np.ndarray:
     )
 
 
+#: How far bundle adjustment may move the focal from its start, as a factor.
+FOCAL_RANGE: float = 1.5
+
+
 def _bundle_adjust(
     graph: nx.Graph,
     sources: Mapping[str, np.ndarray],
@@ -511,8 +515,16 @@ def _bundle_adjust(
         return float(np.sqrt(2.0 * np.mean(residuals(params) ** 2)))
 
     x0 = np.concatenate([[np.log(focal)], Rotation.from_matrix(start[free]).as_rotvec().ravel()])
+    # The focal may move FOCAL_RANGE either way and no further. Unbounded, a bad
+    # start let it collapse (1162 -> 165 px on a 360 sweep), which shrinks every
+    # residual and flings the frames apart: a degenerate minimum, not a fit.
+    lower = np.full_like(x0, -np.inf)
+    upper = np.full_like(x0, np.inf)
+    lower[0], upper[0] = x0[0] - np.log(FOCAL_RANGE), x0[0] + np.log(FOCAL_RANGE)
     try:
-        solved = least_squares(residuals, x0, loss="soft_l1", f_scale=2.0, x_scale="jac")
+        solved = least_squares(
+            residuals, x0, bounds=(lower, upper), loss="soft_l1", f_scale=2.0, x_scale="jac"
+        )
     except (ValueError, np.linalg.LinAlgError) as exc:
         logger.warning("bundle adjustment failed (%s); keeping the chained estimates", exc)
         return dict(homographies), focal

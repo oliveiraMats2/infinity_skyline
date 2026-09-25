@@ -114,8 +114,22 @@ def rejected_images(graph: nx.Graph, config: GraphConfig) -> list[str]:
     return rejected
 
 
+def _chain_weight(sub: nx.Graph, order: Sequence[str]) -> float:
+    """Inliers summed over consecutive frames: how well ``order`` follows the edges."""
+    return sum(float(sub[u][v].get("weight", 1.0)) for u, v in zip(order, order[1:]) if sub.has_edge(u, v))
+
+
 def _spectral_order(sub: nx.Graph, nodes: list[str]) -> list[str]:
-    """Sort one connected component by its Fiedler vector."""
+    """Sort one connected component by its Fiedler vector, or around a ring.
+
+    A 360 degree sweep is a ring, not a line, and the Fiedler vector of a ring is a
+    cosine: sorting by it folds the circle onto itself and interleaves its two
+    halves (3486, 3470, 3485, 3471, ...). On a ring the second and third
+    eigenvectors are the cosine and the sine, so the angle of each node in that
+    plane walks it around the circle. Both orders are built, the ring cut at its
+    weakest consecutive link, and the one whose neighbours share more inliers wins,
+    so a flat sweep keeps its linear order.
+    """
     if len(nodes) <= 2:
         return list(nodes)
     adjacency = np.array(
@@ -128,8 +142,22 @@ def _spectral_order(sub: nx.Graph, nodes: list[str]) -> list[str]:
     laplacian = np.diag(adjacency.sum(axis=1)) - adjacency
     # eigh, not eig: the Laplacian is symmetric, so the spectrum is real.
     values, vectors = np.linalg.eigh(laplacian)
-    fiedler = vectors[:, np.argsort(values)[1]]
-    return [nodes[i] for i in np.argsort(fiedler)]
+    ranked = np.argsort(values)
+    linear = [nodes[i] for i in np.argsort(vectors[:, ranked[1]])]
+    if len(nodes) < 4:
+        return linear
+    angle = np.arctan2(vectors[:, ranked[2]], vectors[:, ranked[1]])
+    ring = [nodes[i] for i in np.argsort(angle)]
+    links = [
+        float(sub[u][v].get("weight", 1.0)) if sub.has_edge(u, v) else 0.0
+        for u, v in zip(ring, ring[1:] + ring[:1])
+    ]
+    cut = int(np.argmin(links)) + 1
+    ring = ring[cut:] + ring[:cut]
+    if _chain_weight(sub, ring) > _chain_weight(sub, linear):
+        logger.info("the sweep closes on itself: ordered around the ring")
+        return ring
+    return linear
 
 
 def infer_order(graph: nx.Graph, nodes: Sequence[str]) -> list[str]:

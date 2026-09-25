@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import networkx as nx
 import numpy as np
 import pytest
 
@@ -123,3 +124,16 @@ def test_connectivity_matrix_is_symmetric_with_a_zero_diagonal() -> None:
     assert matrix[0, 1] > 0  # consecutive images are connected
     assert matrix[0, 2] == 0  # non consecutive ones were never matched
     assert matrix[len(CHAIN), :].sum() == 0  # the intruder is connected to nothing
+
+
+def test_a_sweep_that_closes_on_itself_is_ordered_around_the_ring() -> None:
+    # 12 frames on a circle, each overlapping the next two, and the last the first:
+    # the Fiedler vector alone folds this in half and interleaves the two sides.
+    names = [f"f{i:02d}" for i in range(12)]
+    graph = nx.Graph()
+    for i in range(12):
+        graph.add_edge(names[i], names[(i + 1) % 12], weight=500)
+        graph.add_edge(names[i], names[(i + 2) % 12], weight=200)
+    order = infer_order(graph, names)
+    steps = {(names.index(b) - names.index(a)) % 12 for a, b in zip(order, order[1:])}
+    assert steps in ({1}, {11})  # one direction around the ring, no jumps

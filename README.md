@@ -78,6 +78,7 @@ python main.py convert --config configs/default.yaml --source ~/360_plasma_image
 python main.py sweep --config configs/sweep_plasma_180_degree.yaml    # flat panorama, report axes
 python main.py sweep --config configs/sweep_plasma_23_sep_plano.yaml  # flat panorama, report axes
 python main.py sweep --config configs/sweep_360_plasma_images.yaml    # 360, bundle adjustment on
+python main.py sweep --config configs/sweep_plasma_3500_3515.yaml    # IMG_3500-3515, the second sequence split out of the 360 folder
 ```
 
 These sweep files set `resume: true`: stopping a sweep and running the same command

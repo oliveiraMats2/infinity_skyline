@@ -408,6 +408,49 @@ past 90 degrees from the reference (item 1): use it on narrow sectors only.
 
 ---
 
+## 10. The 360 degree sweep: a folded order and a collapsing focal (fixed)
+
+**Status:** fixed on 24/09 and validated on `360_plasma_images`.
+
+**What happened.** The progressive figures of the 360 sweep came out twisted, some
+frames upside down, and the canvas grew taller than wide. Three causes, measured on the
+cached matches of that run:
+
+1. **The order folded.** `infer_order` sorts by the Fiedler vector, which assumes a
+   line. A sweep that closes on itself is a ring, and the Fiedler vector of a ring is a
+   cosine, so sorting by it interleaves the two halves of the circle
+   (`3486 -> 3470 -> 3485 -> 3471 -> ...`). The progressive steps then stitched frames
+   from opposite sides together.
+2. **False edges glued two sequences.** The folder holds the loop `3469 -> 3499`,
+   which closes (3499 matches 3469 with 278 inliers, the same orange building), plus a
+   second, darker sequence `3500 -> 3515`. That second one reaches the loop only through
+   matches on repeated buildings, 31 to 56 inliers, against at least 304 between true
+   neighbours. At `graph.min_inliers: 30` those edges pass.
+3. **Bundle adjustment collapsed the focal.** With nothing bounding it, the focal fell
+   from 1162 to 165 px on the folded subsets: shrinking it shrinks every residual, a
+   degenerate minimum that flings the frames apart.
+
+**Fixes.**
+
+* `_spectral_order` also orders around the ring, by the angle in the plane of the
+  second and third eigenvectors (cosine and sine on a ring), cuts it at its weakest
+  link, and keeps whichever order has more inliers between consecutive frames. Flat
+  sweeps keep their linear order (checked on `plasma_180_degree`: unchanged).
+* `configs/sweep_360_plasma_images.yaml` sets `graph.min_inliers: 100`. The loop is then
+  its own component and the 16 frames of the other sequence are rejected, as an intruder
+  set would be.
+* Bundle adjustment may move the focal by `FOCAL_RANGE` (1.5x) either way at most.
+* The fast progressive steps skip bundle adjustment too; the final panorama keeps it.
+
+**Validated.** The 31 loop frames come out in exact capture order. Bundle adjustment
+takes the residual from 89.5 to 9.7 px and settles the focal at 1039 px, which fits a
+phone main camera, where the Canon value in the configs is 1162. The cylindrical canvas
+is 6529 px wide, that is 2 pi times 1039: the full turn. The equirectangular output has
+image in 100 percent of its columns, and the building on the left edge continues on the
+right edge.
+
+---
+
 ## Smaller observations
 
 **`infer_order` transposes locally on densely connected graphs.** On the 25 image
